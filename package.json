@@ -1,0 +1,29 @@
+{
+  "name": "minecraft-autonomous-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node --env-file-if-exists=.env dist/src/main.js",
+    "demo": "node --env-file-if-exists=.env dist/src/main.js --movement-demo",
+    "trace:motion": "node --env-file-if-exists=.env dist/src/main.js --motion-trace",
+    "test": "pnpm build && node --test dist/test/*.test.js",
+    "lint": "prettier --check .",
+    "format": "prettier --write .",
+    "check": "pnpm typecheck && pnpm test && pnpm lint"
+  },
+  "dependencies": {
+    "mineflayer": "4.39.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "typescript": "7.0.2",
+    "prettier": "3.9.9"
+  }
+}

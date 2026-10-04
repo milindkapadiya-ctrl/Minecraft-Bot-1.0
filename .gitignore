@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+logs/
+.auth/
+server/
+.tools/
+.pnpm-store/
+*.log
+
+server-26.1/
+output/
+tmp/
+.DS_Store

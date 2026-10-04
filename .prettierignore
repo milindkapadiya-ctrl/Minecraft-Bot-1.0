@@ -1,0 +1,10 @@
+node_modules
+dist
+pnpm-lock.yaml
+server
+.tools
+.pnpm-store
+logs
+.auth
+
+server-26.1/
