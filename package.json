@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node --env-file-if-exists=.env dist/src/main.js",
     "demo": "node --env-file-if-exists=.env dist/src/main.js --movement-demo",
+    "gemini:demo": "node --env-file-if-exists=.env dist/src/main.js --gemini-demo",
     "trace:motion": "node --env-file-if-exists=.env dist/src/main.js --motion-trace",
     "test": "pnpm build && node --test dist/test/*.test.js",
     "lint": "prettier --check .",

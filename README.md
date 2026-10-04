@@ -2,7 +2,20 @@
 
 This repository contains source code and configuration templates. It does not include a server jar, world, local runtimes, dependencies, logs, or credentials. The supplied Windows `.cmd` launchers expect separately installed portable runtimes and a local server, so use the terminal instructions below for a fresh clone.
 
-A small TypeScript/Mineflayer foundation for a future autonomous Ender Dragon run. **Milestones 0–1 plus the first slice of Milestone 2:** connection/state reporting and validated short look/movement actions. No pathfinding, resource acquisition, or AI calls yet. Normal startup remains idle.
+A small TypeScript/Mineflayer foundation for a future autonomous Ender Dragon run. **Milestones 0–1 plus the first slice of Milestone 2:** connection/state reporting and validated short look/movement actions. The optional Gemini mode is a bounded decision demo; there is no pathfinding or resource acquisition. Normal startup remains idle.
+
+## Bounded Gemini decision demo
+
+The optional `milind-api-testing` branch adds a tiny model-driven movement demo. It asks Gemini to choose at most **four** actions from turn left, turn right, step forward, step back, and stop. Each step lasts 150 ms; the bot remains within two blocks of where this mode started, checks adjacent ground and clearance before stepping, and disconnects after at most 90 seconds. It is not a pathfinder or a general Survival agent. Use only on clear, flat terrain while watching the bot.
+
+Put `GEMINI_API_KEY=...` in the local, ignored `.env` file. Do not place the key in source, commit it, or paste it into a public issue. With the local 26.1 server running, use Node 24 and run:
+
+```sh
+pnpm build
+pnpm gemini:demo
+```
+
+The mode logs selected action names and results but never logs the credential or raw model response. It makes at most four API requests, with no automatic retries. `GEMINI_MODEL` defaults to `gemini-3.8-flash`; the exact model can be changed in `.env`. API requests may incur charges. Stop it at any time with Ctrl+C. The regular `pnpm start` and `pnpm demo` modes do not use Gemini.
 
 ## Quick start on macOS
 

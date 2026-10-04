@@ -13,4 +13,6 @@ server/
 server-26.1/
 output/
 tmp/
+work/
+outputs/
 .DS_Store

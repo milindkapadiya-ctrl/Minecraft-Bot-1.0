@@ -4,6 +4,7 @@ import { createLogger } from "./telemetry/logger.js";
 import { movementConsole } from "./demo.js";
 import { traceMotion } from "./telemetry/motion.js";
 import { installVelocityCompatibility } from "./minecraft/velocity-compat.js";
+import { geminiDemo } from "./agent/gemini.js";
 
 async function main() {
   const config = readConfig(process.env);
@@ -12,18 +13,28 @@ async function main() {
     process.argv.length > 3 ||
     (mode !== undefined &&
       mode !== "--movement-demo" &&
+      mode !== "--gemini-demo" &&
       mode !== "--motion-trace" &&
       mode !== "--respawn-once")
   )
     throw new Error("Unknown CLI option");
   // Independent bounded diagnostic session; do not inherit an old 15s smoke setting.
-  if (mode) config.runDurationMs = mode === "--respawn-once" ? 5000 : 600000;
+  if (mode)
+    config.runDurationMs =
+      mode === "--respawn-once"
+        ? 5000
+        : mode === "--gemini-demo"
+          ? 90000
+          : 600000;
   const { log, file } = createLogger(config.logDir);
   log("session_started", {
     logFile: file,
-    milestone: mode === "--movement-demo" ? "2-first-slice" : 1,
-    apiRequests: 0,
-    estimatedCostUsd: 0,
+    milestone:
+      mode === "--gemini-demo"
+        ? "gemini-limited-demo"
+        : mode === "--movement-demo"
+          ? "2-first-slice"
+          : 1,
   });
   const session = startSession(
     config,
@@ -37,9 +48,13 @@ async function main() {
         const disposeMode =
           mode === "--movement-demo"
             ? movementConsole(bot, log, () => session.stop("demo_finished"))
-            : mode === "--motion-trace"
-              ? traceMotion(bot, log)
-              : undefined;
+            : mode === "--gemini-demo"
+              ? geminiDemo(bot, log, (reason, code) =>
+                  session.stop(reason, code),
+                )
+              : mode === "--motion-trace"
+                ? traceMotion(bot, log)
+                : undefined;
         return () => {
           disposeMode?.();
           disposeCompatibility();
