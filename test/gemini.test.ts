@@ -23,6 +23,7 @@ test("Gemini receives a bounded schema and returns only an allowed choice", asyn
       body.generationConfig.responseSchema.properties.choice.enum.length,
       5,
     );
+    assert.match(body.contents[0].parts[0].text, /step_forward:blocked/);
     return Response.json({
       candidates: [
         {
@@ -40,6 +41,7 @@ test("Gemini receives a bounded schema and returns only an allowed choice", asyn
     4,
     new AbortController().signal,
     request,
+    ["step_forward:blocked"],
   );
   assert.equal(seen, true);
   assert.equal(decision.choice, "turn_left");

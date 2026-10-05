@@ -100,7 +100,7 @@ export async function chooseGeminiAction(
   remaining: number,
   signal: AbortSignal,
   request: typeof fetch = fetch,
-  history: Choice[] = [],
+  history: string[] = [],
 ): Promise<Decision> {
   const response = await request(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -113,7 +113,7 @@ export async function chooseGeminiAction(
           {
             parts: [
               {
-                text: `You control a Minecraft bot for a tiny, supervised movement demonstration. Goal: take one cautious step, then stop. Choose exactly one action from turn_left, turn_right, step_forward, step_back, stop. Choose a step if you have not stepped yet; do not turn repeatedly. Once a step succeeds, choose stop. The application checks nearby terrain and limits movement. You have ${remaining} decision(s) remaining. Previous successful actions: ${JSON.stringify(history)}. Do not assume unseen blocks or request other tools. Player state: ${JSON.stringify(observation)}`,
+                text: `You control a Minecraft bot for a tiny, supervised movement demonstration. Goal: take one cautious step, then stop. Choose exactly one action from turn_left, turn_right, step_forward, step_back, stop. Choose a step if you have not stepped yet. If a step was blocked, turn before trying another direction. Once a step succeeds, choose stop. The application checks nearby terrain and limits movement. You have ${remaining} decision(s) remaining. Previous action outcomes: ${JSON.stringify(history)}. Do not assume unseen blocks or request other tools. Player state: ${JSON.stringify(observation)}`,
               },
             ],
           },
@@ -164,7 +164,7 @@ export function geminiDemo(
   const runner = new ActionRunner(bot, log);
   const controller = new AbortController();
   const origin = { x: bot.entity.position.x, z: bot.entity.position.z };
-  const history: Choice[] = [];
+  const history: string[] = [];
   let onHealth: (() => void) | undefined;
   void (async () => {
     if (!(await waitForPlayable(bot, controller.signal))) {
@@ -212,7 +212,8 @@ export function geminiDemo(
           decision.choice === "step_forward" ? "forward" : "back";
         if (!safeStep(bot, direction, origin)) {
           log("gemini_action_blocked", { reason: "local_terrain_or_radius" });
-          break;
+          history.push(`${decision.choice}:blocked`);
+          continue;
         }
         const result = await runner.run(
           { type: "move", direction, durationMs: STEP_MS, timeoutMs: 1500 },
@@ -232,7 +233,7 @@ export function geminiDemo(
         );
         if (!result.ok) break;
       }
-      history.push(decision.choice);
+      history.push(`${decision.choice}:ok`);
     }
     if (!controller.signal.aborted) stop("gemini_demo_complete");
   })().catch((error: unknown) => {
