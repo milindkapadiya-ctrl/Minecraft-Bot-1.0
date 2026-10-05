@@ -16,6 +16,37 @@ const choices: Choice[] = [
 const MAX_DECISIONS = 4;
 const MAX_RADIUS = 2;
 const STEP_MS = 150;
+const hazards = /water|lava|fire|cactus|cobweb|powder_snow|sweet_berry_bush/;
+
+function waitForPlayable(bot: Bot, signal: AbortSignal): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const playable = () =>
+      bot.health > 0 &&
+      bot.game.gameMode === "survival" &&
+      bot.entity.onGround &&
+      bot.physicsEnabled;
+    const finish = (ready: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      bot.off("health", check);
+      bot.off("physicsTick", check);
+      signal.removeEventListener("abort", abort);
+      resolve(ready);
+    };
+    const check = () => {
+      if (playable()) finish(true);
+    };
+    const abort = () => finish(false);
+    const timer = setTimeout(() => finish(false), 5000);
+    bot.on("health", check);
+    bot.on("physicsTick", check);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    else check();
+  });
+}
 
 function isDecision(value: unknown): value is Decision {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -49,10 +80,13 @@ function safeStep(
     if (
       !floor ||
       floor.boundingBox !== "block" ||
+      hazards.test(floor.name) ||
       !feet ||
       feet.boundingBox !== "empty" ||
+      hazards.test(feet.name) ||
       !head ||
-      head.boundingBox !== "empty"
+      head.boundingBox !== "empty" ||
+      hazards.test(head.name)
     )
       return false;
   }
@@ -66,6 +100,7 @@ export async function chooseGeminiAction(
   remaining: number,
   signal: AbortSignal,
   request: typeof fetch = fetch,
+  history: Choice[] = [],
 ): Promise<Decision> {
   const response = await request(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -78,26 +113,21 @@ export async function chooseGeminiAction(
           {
             parts: [
               {
-                text: `You control a Minecraft bot for a tiny, supervised movement demonstration. Choose exactly one action from turn_left, turn_right, step_forward, step_back, stop. Prefer turns; move only if useful. The application checks nearby terrain and limits movement. You have ${remaining} decision(s) remaining. Do not assume unseen blocks or request other tools. Player state: ${JSON.stringify(observation)}`,
+                text: `You control a Minecraft bot for a tiny, supervised movement demonstration. Goal: take one cautious step, then stop. Choose exactly one action from turn_left, turn_right, step_forward, step_back, stop. Choose a step if you have not stepped yet; do not turn repeatedly. Once a step succeeds, choose stop. The application checks nearby terrain and limits movement. You have ${remaining} decision(s) remaining. Previous successful actions: ${JSON.stringify(history)}. Do not assume unseen blocks or request other tools. Player state: ${JSON.stringify(observation)}`,
               },
             ],
           },
         ],
         generationConfig: {
           maxOutputTokens: 160,
-          responseFormat: {
-            text: {
-              mimeType: "application/json",
-              schema: {
-                type: "object",
-                properties: {
-                  choice: { type: "string", enum: choices },
-                  reason: { type: "string" },
-                },
-                required: ["choice", "reason"],
-                additionalProperties: false,
-              },
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "OBJECT",
+            properties: {
+              choice: { type: "STRING", enum: choices },
+              reason: { type: "STRING" },
             },
+            required: ["choice", "reason"],
           },
         },
       }),
@@ -129,12 +159,27 @@ export function geminiDemo(
 ) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY is required for --gemini-demo");
-  const model = process.env.GEMINI_MODEL ?? "gemini-3.8-flash";
+  const model = process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite";
   if (!/^[a-zA-Z0-9._-]+$/.test(model)) throw new Error("Invalid GEMINI_MODEL");
   const runner = new ActionRunner(bot, log);
   const controller = new AbortController();
   const origin = { x: bot.entity.position.x, z: bot.entity.position.z };
+  const history: Choice[] = [];
+  let onHealth: (() => void) | undefined;
   void (async () => {
+    if (!(await waitForPlayable(bot, controller.signal))) {
+      if (!controller.signal.aborted) stop("gemini_demo_not_ready", 1);
+      return;
+    }
+    const initialHealth = bot.health;
+    onHealth = () => {
+      if (bot.health < initialHealth) {
+        controller.abort();
+        runner.cancel();
+        stop("gemini_demo_damaged", 1);
+      }
+    };
+    bot.on("health", onHealth);
     log("gemini_demo_ready", {
       model,
       maxDecisions: MAX_DECISIONS,
@@ -156,6 +201,8 @@ export function geminiDemo(
         observePlayer(bot),
         MAX_DECISIONS - index,
         timeout,
+        fetch,
+        history,
       );
       if (controller.signal.aborted) break;
       log("gemini_decision", { number: index + 1, choice: decision.choice });
@@ -185,6 +232,7 @@ export function geminiDemo(
         );
         if (!result.ok) break;
       }
+      history.push(decision.choice);
     }
     if (!controller.signal.aborted) stop("gemini_demo_complete");
   })().catch((error: unknown) => {
@@ -200,5 +248,6 @@ export function geminiDemo(
   return () => {
     controller.abort();
     runner.close();
+    if (onHealth) bot.off("health", onHealth);
   };
 }

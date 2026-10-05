@@ -15,7 +15,7 @@ pnpm build
 pnpm gemini:demo
 ```
 
-The mode logs selected action names and results but never logs the credential or raw model response. It makes at most four API requests, with no automatic retries. `GEMINI_MODEL` defaults to `gemini-3.8-flash`; the exact model can be changed in `.env`. API requests may incur charges. Stop it at any time with Ctrl+C. The regular `pnpm start` and `pnpm demo` modes do not use Gemini.
+The mode logs selected action names and results but never logs the credential or raw model response. It makes at most four API requests, with no automatic retries. `GEMINI_MODEL` defaults to `gemini-3.5-flash-lite`; the exact model can be changed in `.env`. API requests may incur charges. Stop it at any time with Ctrl+C. The regular `pnpm start` and `pnpm demo` modes do not use Gemini.
 
 ## Quick start on macOS
 

@@ -34,7 +34,7 @@ Use explicit [strict function schemas](https://developers.openai.com/api/docs/gu
 - **Accounting:** record request ID, model, input/output tokens, cached reads/writes where applicable, duration, retries, and estimated USD using a dated [pricing table](https://developers.openai.com/api/docs/pricing). Count reasoning/output usage according to the selected model's documented billing. Estimates are not invoices.
 - **Hard stop:** before each request, reserve a conservative maximum charge for bounded input and output, assuming no cache discount and accounting for any write charges. Serialize reservations, persist spent/reserved amounts, and reject requests that could exceed the configured limit. Reconcile against returned usage. Unknown pricing or ambiguous failed-request billing pauses the agent until reconciled. Retries and escalation require fresh reservations. A warning threshold only reports; the hard threshold prevents new calls. Pausing must cancel active movement safely.
 
-No API package, API key, cost gate, autonomous loop, or pause/resume UI is implemented in Milestone 1. Its API use and cost are exactly zero.
+Milestone 1 has no API use or cost. The optional `milind-api-testing` Gemini demo uses direct HTTP requests and a local ignored key for at most four short movement decisions. It has a request count and duration cap, but no persistent cost ledger, general goal controller, or pause/resume UI; those remain Milestone 4 work.
 
 ## Dependency baseline
 

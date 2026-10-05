@@ -18,13 +18,9 @@ test("Gemini receives a bounded schema and returns only an allowed choice", asyn
     assert.match(String(url), /gemini-3\.8-flash:generateContent$/);
     assert.equal(new Headers(init?.headers).get("x-goog-api-key"), "test-key");
     const body = JSON.parse(String(init?.body));
+    assert.equal(body.generationConfig.responseMimeType, "application/json");
     assert.equal(
-      body.generationConfig.responseFormat.text.mimeType,
-      "application/json",
-    );
-    assert.equal(
-      body.generationConfig.responseFormat.text.schema.properties.choice.enum
-        .length,
+      body.generationConfig.responseSchema.properties.choice.enum.length,
       5,
     );
     return Response.json({
