@@ -45,6 +45,17 @@ Gemini chooses short walking and visible log gathering actions. The bot checks i
 
 The run stops on damage, death, disconnection, leaving a 40-block radius, Ctrl+C, 120 iterations, 30 minutes, or a persistent API or crafting failure. Gemini calls are spaced by at least five seconds, and a temporary 429, 503, or timeout gets one retry after 30 seconds. API use may incur charges. This is a local Survival experiment, not general autonomous gameplay. Do not run two bots with the same `MC_USERNAME` at the same time.
 
+## Gemini sword and animal goal
+
+`gemini:sword-hunt` lets Gemini choose **every gameplay action** from a limited set: walk, gather logs, craft materials and a wooden sword, equip it, approach an observed animal, and attack it. The code checks each choice against current game state and never chooses a substitute action. It verifies a sword in inventory and an `entityDead` event for an animal the bot attacked. At that point it disconnects and makes no further API calls.
+
+```sh
+pnpm build
+MC_PORT=25566 pnpm gemini:sword-hunt
+```
+
+This uses the ignored local `GEMINI_API_KEY` in `.env`. It stops on damage, death, disconnection, Ctrl+C, a 100-block radius, 120 decisions, 30 minutes, or a persistent API error. Calls are spaced by at least three seconds; a temporary 429, 503, or timeout gets one retry after 30 seconds. Start only one bot with a given `MC_USERNAME`. An existing sword, planks, sticks, or nearby crafting table may be reused from previous play.
+
 ## Quick start on macOS
 
 This bot currently connects only to a **Minecraft Java 26.1 server on the same Mac**. It uses offline authentication and rejects non-local addresses. Do not turn off authentication on an existing public server just to run it. A server on another computer, a hosted server, Bedrock, or a different Java version requires code changes.

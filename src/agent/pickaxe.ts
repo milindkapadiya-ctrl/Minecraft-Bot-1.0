@@ -41,7 +41,7 @@ function craftingTable(bot: Bot) {
   return bot.findBlock({ matching: id, maxDistance: 4 });
 }
 
-async function craft(
+export async function craft(
   bot: Bot,
   itemName: string,
   table: ReturnType<typeof craftingTable> = null,
@@ -59,7 +59,7 @@ async function craft(
   return count(bot, itemName) > 0;
 }
 
-async function craftPlanks(bot: Bot) {
+export async function craftPlanks(bot: Bot) {
   for (const item of bot.inventory.items()) {
     if (!item.name.endsWith("_log")) continue;
     if (await craft(bot, item.name.replace(/_log$/, "_planks"))) return true;
@@ -67,7 +67,7 @@ async function craftPlanks(bot: Bot) {
   return false;
 }
 
-async function placeCraftingTable(bot: Bot) {
+export async function placeCraftingTable(bot: Bot) {
   const item = bot.inventory
     .items()
     .find((entry) => entry.name === "crafting_table");

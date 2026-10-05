@@ -7,6 +7,7 @@ import { installVelocityCompatibility } from "./minecraft/velocity-compat.js";
 import { geminiDemo } from "./agent/gemini.js";
 import { geminiPlay } from "./agent/play.js";
 import { geminiPickaxe } from "./agent/pickaxe.js";
+import { geminiSwordHunt } from "./agent/sword-hunt.js";
 import mineflayer from "mineflayer";
 import pathfinderPackage from "mineflayer-pathfinder";
 
@@ -20,6 +21,7 @@ async function main() {
       mode !== "--gemini-demo" &&
       mode !== "--gemini-play" &&
       mode !== "--gemini-pickaxe" &&
+      mode !== "--gemini-sword-hunt" &&
       mode !== "--motion-trace" &&
       mode !== "--respawn-once")
   )
@@ -33,7 +35,7 @@ async function main() {
           ? 90000
           : mode === "--gemini-play"
             ? 300000
-            : mode === "--gemini-pickaxe"
+            : mode === "--gemini-pickaxe" || mode === "--gemini-sword-hunt"
               ? 0
               : 600000;
   const { log, file } = createLogger(config.logDir);
@@ -46,14 +48,18 @@ async function main() {
           ? "gemini-local-play"
           : mode === "--gemini-pickaxe"
             ? "gemini-pickaxe"
-            : mode === "--movement-demo"
-              ? "2-first-slice"
-              : 1,
+            : mode === "--gemini-sword-hunt"
+              ? "gemini-sword-hunt"
+              : mode === "--movement-demo"
+                ? "2-first-slice"
+                : 1,
   });
   const session = startSession(
     config,
     log,
-    mode === "--gemini-play" || mode === "--gemini-pickaxe"
+    mode === "--gemini-play" ||
+      mode === "--gemini-pickaxe" ||
+      mode === "--gemini-sword-hunt"
       ? (options) => {
           const bot = mineflayer.createBot(options);
           bot.loadPlugin(pathfinderPackage.pathfinder);
@@ -82,7 +88,11 @@ async function main() {
                     )
                   : mode === "--motion-trace"
                     ? traceMotion(bot, log)
-                    : undefined;
+                    : mode === "--gemini-sword-hunt"
+                      ? geminiSwordHunt(bot, log, (reason, code) =>
+                          session.stop(reason, code),
+                        )
+                      : undefined;
         return () => {
           disposeMode?.();
           disposeCompatibility();
