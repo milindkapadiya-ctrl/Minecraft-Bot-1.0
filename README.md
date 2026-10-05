@@ -56,6 +56,17 @@ MC_PORT=25566 pnpm gemini:sword-hunt
 
 This uses the ignored local `GEMINI_API_KEY` in `.env`. It stops on damage, death, disconnection, Ctrl+C, a 100-block radius, 120 decisions, 30 minutes, or a persistent API error. Calls are spaced by at least three seconds; a temporary 429, 503, or timeout gets one retry after 30 seconds. Start only one bot with a given `MC_USERNAME`. An existing sword, planks, sticks, or nearby crafting table may be reused from previous play.
 
+## Experimental Gemini Dragon run
+
+`gemini:dragon` gives Gemini a broader set of Survival actions for gathering, mining, crafting, placing blocks, smelting, eating, combat, and travel. Every action is selected by Gemini from live player, block, entity, and inventory observations. The executor validates target positions and never uses game commands or creative mode. It stops after a confirmed Ender Dragon death, a failure, six hours, or **500 API requests**, whichever comes first. This mode is experimental. It has reached early iron gathering in a live world, but has not reached the Nether or completed the game; its navigation, combat, and endgame actions need more work.
+
+```sh
+pnpm build
+MC_PORT=25566 pnpm gemini:dragon
+```
+
+Set `GEMINI_DRAGON_REQUEST_LIMIT` to a smaller integer from 1 to 500 if resuming after a partial run; each outbound request, including a failed one, counts. This limit applies to one process, so subtract prior calls from your overall budget before restarting. Keep the key in the ignored `.env` file and monitor the local logs in `LOG_DIR`. Death ends the run; a dead player needs an ordinary Survival respawn before another attempt.
+
 ## Quick start on macOS
 
 This bot currently connects only to a **Minecraft Java 26.1 server on the same Mac**. It uses offline authentication and rejects non-local addresses. Do not turn off authentication on an existing public server just to run it. A server on another computer, a hosted server, Bedrock, or a different Java version requires code changes.
