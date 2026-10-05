@@ -6,6 +6,7 @@ import { traceMotion } from "./telemetry/motion.js";
 import { installVelocityCompatibility } from "./minecraft/velocity-compat.js";
 import { geminiDemo } from "./agent/gemini.js";
 import { geminiPlay } from "./agent/play.js";
+import { geminiPickaxe } from "./agent/pickaxe.js";
 import mineflayer from "mineflayer";
 import pathfinderPackage from "mineflayer-pathfinder";
 
@@ -18,6 +19,7 @@ async function main() {
       mode !== "--movement-demo" &&
       mode !== "--gemini-demo" &&
       mode !== "--gemini-play" &&
+      mode !== "--gemini-pickaxe" &&
       mode !== "--motion-trace" &&
       mode !== "--respawn-once")
   )
@@ -31,7 +33,9 @@ async function main() {
           ? 90000
           : mode === "--gemini-play"
             ? 300000
-            : 600000;
+            : mode === "--gemini-pickaxe"
+              ? 0
+              : 600000;
   const { log, file } = createLogger(config.logDir);
   log("session_started", {
     logFile: file,
@@ -40,14 +44,16 @@ async function main() {
         ? "gemini-limited-demo"
         : mode === "--gemini-play"
           ? "gemini-local-play"
-          : mode === "--movement-demo"
-            ? "2-first-slice"
-            : 1,
+          : mode === "--gemini-pickaxe"
+            ? "gemini-pickaxe"
+            : mode === "--movement-demo"
+              ? "2-first-slice"
+              : 1,
   });
   const session = startSession(
     config,
     log,
-    mode === "--gemini-play"
+    mode === "--gemini-play" || mode === "--gemini-pickaxe"
       ? (options) => {
           const bot = mineflayer.createBot(options);
           bot.loadPlugin(pathfinderPackage.pathfinder);
@@ -70,9 +76,13 @@ async function main() {
                 ? geminiPlay(bot, log, (reason, code) =>
                     session.stop(reason, code),
                   )
-                : mode === "--motion-trace"
-                  ? traceMotion(bot, log)
-                  : undefined;
+                : mode === "--gemini-pickaxe"
+                  ? geminiPickaxe(bot, log, (reason, code) =>
+                      session.stop(reason, code),
+                    )
+                  : mode === "--motion-trace"
+                    ? traceMotion(bot, log)
+                    : undefined;
         return () => {
           disposeMode?.();
           disposeCompatibility();

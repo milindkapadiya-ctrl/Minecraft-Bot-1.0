@@ -5,7 +5,7 @@ import { observePlayer } from "../observation/player.js";
 import { waitForPlayable } from "./gemini.js";
 
 const { Movements, goals } = pathfinderPackage;
-type PlayChoice =
+export type PlayChoice =
   | "walk_north"
   | "walk_south"
   | "walk_east"
@@ -25,10 +25,10 @@ const choices: PlayChoice[] = [
   "stop",
 ];
 const MAX_DECISIONS = 24;
-const MAX_RADIUS = 40;
-const MIN_REQUEST_INTERVAL_MS = 5000;
+export const MAX_RADIUS = 40;
+export const MIN_REQUEST_INTERVAL_MS = 5000;
 
-function delay(ms: number, signal: AbortSignal): Promise<void> {
+export function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const abort = () => {
       clearTimeout(timer);
@@ -43,7 +43,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-function visibleLogs(bot: Bot) {
+export function visibleLogs(bot: Bot) {
   return bot
     .findBlocks({
       matching: (block) => block.name.endsWith("_log"),
@@ -67,12 +67,22 @@ function hasLog(bot: Bot) {
   return bot.inventory.items().some((item) => item.name.endsWith("_log"));
 }
 
-async function collectNearbyDrop(
+export function logCount(bot: Bot) {
+  return bot.inventory
+    .items()
+    .reduce(
+      (count, item) => count + (item.name.endsWith("_log") ? item.count : 0),
+      0,
+    );
+}
+
+export async function collectNearbyDrop(
   bot: Bot,
   origin: { x: number; z: number },
   signal: AbortSignal,
+  minimumLogCount = 1,
 ) {
-  if (hasLog(bot)) return true;
+  if (logCount(bot) >= minimumLogCount) return true;
   await delay(600, signal);
   const item = Object.values(bot.entities)
     .filter(
@@ -97,10 +107,10 @@ async function collectNearbyDrop(
     signal,
   );
   await delay(800, signal);
-  return hasLog(bot);
+  return logCount(bot) >= minimumLogCount;
 }
 
-async function choosePlayAction(
+export async function choosePlayAction(
   bot: Bot,
   key: string,
   model: string,
@@ -108,6 +118,7 @@ async function choosePlayAction(
   distanceFromStart: number,
   signal: AbortSignal,
   request: typeof fetch = fetch,
+  goal: "log" | "pickaxe" = "log",
 ): Promise<PlayChoice> {
   const observation = {
     player: observePlayer(bot),
@@ -155,7 +166,7 @@ async function choosePlayAction(
           {
             parts: [
               {
-                text: `You are controlling a Minecraft Survival player on a fresh local test world. Goal: explore nearby safely and get one tree log into inventory. Choose exactly one action. walk_north/south/east/west asks a walking-only pathfinder to travel about 3 blocks; approach_visible_log walks near the closest visible log; chop_visible_log digs a visible reachable log; collect_nearby_drop walks to a nearby dropped item. A chopped block does not count as collected until inventory contains a log. Stop if injured, threatened, stuck, or successful. Never ask for commands, teleportation, or hidden world data. Do not repeat a failed action in the same place. Keep within the maximum distance from start. Previous outcomes: ${JSON.stringify(history.slice(-8))}. Current legitimate observation: ${JSON.stringify(observation)}.`,
+                text: `You are controlling a Minecraft Survival player on a local test world. Goal: ${goal === "pickaxe" ? "gather another tree log so the bot can craft a wooden pickaxe. The bot handles recipes and crafting automatically; keep gathering until told the pickaxe exists." : "explore nearby safely and get one tree log into inventory"}. Choose exactly one action. walk_north/south/east/west asks a walking-only pathfinder to travel about 3 blocks; approach_visible_log walks near the closest visible log; chop_visible_log digs a visible reachable log; collect_nearby_drop walks to a nearby dropped item. A chopped block does not count as collected until inventory contains a log. ${goal === "pickaxe" ? "Do not choose stop while more wood is needed." : "Stop if injured, threatened, stuck, or successful."} Never ask for commands, teleportation, or hidden world data. Do not repeat a failed action in the same place. Keep within the maximum distance from start. Previous outcomes: ${JSON.stringify(history.slice(-8))}. Current legitimate observation: ${JSON.stringify(observation)}.`,
               },
             ],
           },
@@ -166,7 +177,13 @@ async function choosePlayAction(
           responseSchema: {
             type: "OBJECT",
             properties: {
-              choice: { type: "STRING", enum: choices },
+              choice: {
+                type: "STRING",
+                enum:
+                  goal === "pickaxe"
+                    ? choices.filter((item) => item !== "stop")
+                    : choices,
+              },
               reason: { type: "STRING" },
             },
             required: ["choice", "reason"],
@@ -190,12 +207,15 @@ async function choosePlayAction(
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
     throw new Error("Invalid Gemini decision");
   const choice = (parsed as Record<string, unknown>).choice;
-  if (!choices.includes(choice as PlayChoice))
+  if (
+    !choices.includes(choice as PlayChoice) ||
+    (goal === "pickaxe" && choice === "stop")
+  )
     throw new Error("Invalid Gemini choice");
   return choice as PlayChoice;
 }
 
-function walk(
+export function walk(
   bot: Bot,
   goal: InstanceType<typeof goals.GoalNear>,
   signal: AbortSignal,
@@ -224,7 +244,7 @@ function walk(
   });
 }
 
-function chop(
+export function chop(
   bot: Bot,
   block: ReturnType<Bot["blockAt"]> | undefined,
   signal: AbortSignal,

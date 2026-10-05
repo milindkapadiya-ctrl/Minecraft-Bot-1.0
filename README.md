@@ -2,7 +2,7 @@
 
 This repository contains source code and configuration templates. It does not include a server jar, world, local runtimes, dependencies, logs, or credentials. The supplied Windows `.cmd` launchers expect separately installed portable runtimes and a local server, so use the terminal instructions below for a fresh clone.
 
-A small TypeScript/Mineflayer foundation for a future autonomous Ender Dragon run. **Milestones 0–1 plus the first slice of Milestone 2:** connection/state reporting and validated short look/movement actions. Optional Gemini modes provide a tiny decision demo and a bounded local play experiment with walking pathfinding and visible log digging. Normal startup remains idle.
+A small TypeScript/Mineflayer foundation for a future autonomous Ender Dragon run. It includes connection/state reporting, validated short movement actions, a Gemini movement demo, a local log gathering experiment, and a wooden pickaxe goal. Normal startup remains idle.
 
 ## Bounded Gemini decision demo
 
@@ -31,6 +31,19 @@ MC_PORT=25566 pnpm gemini:play
 Join from Minecraft Java 26.1 at `127.0.0.1:25566` to watch. Keep `GEMINI_API_KEY` in the ignored `.env` file. If Gemini reaches the account's rate or daily quota, the bot stops after its bounded retry; check your active limit in Google AI Studio. Each run records decisions and action results in `logs/` without the key or raw model response.
 
 After a successful one-log run, the same player already has a log and exits immediately on the next run. To watch a fresh run in this test world, use a new local bot name such as `MC_USERNAME=SurvivalBot2 MC_PORT=25566 pnpm gemini:play`.
+
+## Gemini wooden pickaxe goal
+
+With the local 26.1 server running and `GEMINI_API_KEY` in the ignored `.env` file, run:
+
+```sh
+pnpm build
+MC_PORT=25566 pnpm gemini:pickaxe
+```
+
+Gemini chooses short walking and visible log gathering actions. The bot checks its real inventory after each step, crafts planks, a crafting table, sticks, and a wooden pickaxe using Mineflayer recipes, and places the table on an adjacent solid surface. It continues until `wooden_pickaxe` appears in inventory. After success, the bot stays connected but stops making API requests. If the player already owns a wooden pickaxe, it reports success immediately.
+
+The run stops on damage, death, disconnection, leaving a 40-block radius, Ctrl+C, 120 iterations, 30 minutes, or a persistent API or crafting failure. Gemini calls are spaced by at least five seconds, and a temporary 429, 503, or timeout gets one retry after 30 seconds. API use may incur charges. This is a local Survival experiment, not general autonomous gameplay. Do not run two bots with the same `MC_USERNAME` at the same time.
 
 ## Quick start on macOS
 

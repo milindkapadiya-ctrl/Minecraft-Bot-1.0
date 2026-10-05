@@ -14,6 +14,7 @@
     "demo": "node --env-file-if-exists=.env dist/src/main.js --movement-demo",
     "gemini:demo": "node --env-file-if-exists=.env dist/src/main.js --gemini-demo",
     "gemini:play": "node --env-file-if-exists=.env dist/src/main.js --gemini-play",
+    "gemini:pickaxe": "node --env-file-if-exists=.env dist/src/main.js --gemini-pickaxe",
     "trace:motion": "node --env-file-if-exists=.env dist/src/main.js --motion-trace",
     "test": "pnpm build && node --test dist/test/*.test.js",
     "lint": "prettier --check .",
