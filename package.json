@@ -17,6 +17,7 @@
     "gemini:pickaxe": "node --env-file-if-exists=.env dist/src/main.js --gemini-pickaxe",
     "gemini:sword-hunt": "node --env-file-if-exists=.env dist/src/main.js --gemini-sword-hunt",
     "gemini:dragon": "node --env-file-if-exists=.env dist/src/main.js --gemini-dragon",
+    "gemini:smelt-iron": "node --env-file-if-exists=.env dist/src/main.js --gemini-smelt-iron",
     "trace:motion": "node --env-file-if-exists=.env dist/src/main.js --motion-trace",
     "test": "pnpm build && node --test dist/test/*.test.js",
     "lint": "prettier --check .",

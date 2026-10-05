@@ -24,6 +24,7 @@ async function main() {
       mode !== "--gemini-pickaxe" &&
       mode !== "--gemini-sword-hunt" &&
       mode !== "--gemini-dragon" &&
+      mode !== "--gemini-smelt-iron" &&
       mode !== "--motion-trace" &&
       mode !== "--respawn-once")
   )
@@ -39,7 +40,8 @@ async function main() {
             ? 300000
             : mode === "--gemini-pickaxe" ||
                 mode === "--gemini-sword-hunt" ||
-                mode === "--gemini-dragon"
+                mode === "--gemini-dragon" ||
+                mode === "--gemini-smelt-iron"
               ? 0
               : 600000;
   const { log, file } = createLogger(config.logDir);
@@ -56,9 +58,11 @@ async function main() {
               ? "gemini-sword-hunt"
               : mode === "--gemini-dragon"
                 ? "gemini-dragon"
-                : mode === "--movement-demo"
-                  ? "2-first-slice"
-                  : 1,
+                : mode === "--gemini-smelt-iron"
+                  ? "gemini-smelt-iron"
+                  : mode === "--movement-demo"
+                    ? "2-first-slice"
+                    : 1,
   });
   const session = startSession(
     config,
@@ -66,7 +70,8 @@ async function main() {
     mode === "--gemini-play" ||
       mode === "--gemini-pickaxe" ||
       mode === "--gemini-sword-hunt" ||
-      mode === "--gemini-dragon"
+      mode === "--gemini-dragon" ||
+      mode === "--gemini-smelt-iron"
       ? (options) => {
           const bot = mineflayer.createBot(options);
           bot.loadPlugin(pathfinderPackage.pathfinder);
@@ -99,9 +104,15 @@ async function main() {
                       ? geminiSwordHunt(bot, log, (reason, code) =>
                           session.stop(reason, code),
                         )
-                      : mode === "--gemini-dragon"
-                        ? geminiDragonRun(bot, log, (reason, code) =>
-                            session.stop(reason, code),
+                      : mode === "--gemini-dragon" ||
+                          mode === "--gemini-smelt-iron"
+                        ? geminiDragonRun(
+                            bot,
+                            log,
+                            (reason, code) => session.stop(reason, code),
+                            mode === "--gemini-smelt-iron"
+                              ? "smelt_iron"
+                              : "dragon",
                           )
                         : undefined;
         return () => {

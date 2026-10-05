@@ -67,6 +67,17 @@ MC_PORT=25566 pnpm gemini:dragon
 
 Set `GEMINI_DRAGON_REQUEST_LIMIT` to a smaller integer from 1 to 500 if resuming after a partial run; each outbound request, including a failed one, counts. This limit applies to one process, so subtract prior calls from your overall budget before restarting. Keep the key in the ignored `.env` file and monitor the local logs in `LOG_DIR`. Death ends the run; a dead player needs an ordinary Survival respawn before another attempt.
 
+## Gemini iron smelting run
+
+`gemini:smelt-iron` uses the same Survival action executor with a focused goal: gather resources, mine iron ore, craft and place a furnace, smelt raw iron, and stop API calls as soon as one iron ingot appears in the bot's inventory. It does not give the bot items or use gameplay commands.
+
+```sh
+pnpm build
+MC_PORT=25566 GEMINI_DRAGON_REQUEST_LIMIT=100 pnpm gemini:smelt-iron
+```
+
+Set the request limit to the number of calls you intend to allow for this process. As with the Dragon run, each attempted API request counts, and death or an error ends the run.
+
 ## Quick start on macOS
 
 This bot currently connects only to a **Minecraft Java 26.1 server on the same Mac**. It uses offline authentication and rejects non-local addresses. Do not turn off authentication on an existing public server just to run it. A server on another computer, a hosted server, Bedrock, or a different Java version requires code changes.

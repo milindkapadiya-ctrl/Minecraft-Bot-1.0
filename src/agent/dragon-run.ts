@@ -74,6 +74,7 @@ type Decision = {
 
 function walkXZ(bot: Bot, x: number, z: number, signal: AbortSignal) {
   return new Promise<boolean>((resolve) => {
+    const origin = bot.entity.position.clone();
     let settled = false;
     const finish = (ok: boolean) => {
       if (settled) return;
@@ -87,11 +88,15 @@ function walkXZ(bot: Bot, x: number, z: number, signal: AbortSignal) {
     const timer = setTimeout(() => finish(false), 12000);
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) return abort();
-    void bot.pathfinder.goto(new goals.GoalNearXZ(x, z, 1)).then(
+    void bot.pathfinder.goto(new goals.GoalNearXZ(x, z, 0)).then(
       () =>
         finish(
           Math.hypot(bot.entity.position.x - x, bot.entity.position.z - z) <=
-            1.6,
+            1.6 &&
+            Math.hypot(
+              bot.entity.position.x - origin.x,
+              bot.entity.position.z - origin.z,
+            ) >= 0.65,
         ),
       () => finish(false),
     );
@@ -307,7 +312,11 @@ function placeableCells(bot: Bot) {
     .slice(0, 24);
 }
 
-function observation(bot: Bot, history: string[]) {
+function observation(
+  bot: Bot,
+  history: string[],
+  goal: "dragon" | "smelt_iron" = "dragon",
+) {
   const inventory = bot.inventory.items();
   const woodCount = inventory
     .filter((item) => item.name.endsWith("_log"))
@@ -352,7 +361,17 @@ function observation(bot: Bot, history: string[]) {
     .filter((item) => item.name === "iron_ingot")
     .reduce((sum, item) => sum + item.count, 0);
   let nextResourceHint: string | null = null;
-  if (woodCount >= 4 && cobblestoneCount < 3) {
+  if (goal === "smelt_iron" && rawIron > 0) {
+    nextResourceHint =
+      "You have raw iron. Stop mining. Gather 8 cobblestone for a furnace if needed, retain a log or planks for fuel, craft and place the furnace, then use smelt_item with item raw_iron and a wood fuel. Stop when one iron_ingot is in inventory.";
+  } else if (goal === "smelt_iron" && hasStonePickaxe) {
+    nextResourceHint =
+      failedDescent && feet.y > 16
+        ? "Find a safe new tunnel direction, then descend toward Y=16. Mine visible iron_ore with the stone pickaxe. One raw_iron is enough."
+        : feet.y <= 20
+          ? "Explore new tunnels for iron_ore. Mine one iron_ore with the stone pickaxe, then craft a furnace and smelt the raw_iron."
+          : "Descend safely toward Y=16, explore for iron_ore, and mine one with the stone pickaxe.";
+  } else if (woodCount >= 4 && cobblestoneCount < 3) {
     nextResourceHint =
       "Enough wood: stop gathering logs. Seek visible stone or use dig_down to descend safely toward stone. Mine at least 3 stone, then craft a stone pickaxe.";
   } else if (cobblestoneCount >= 3 && !hasStonePickaxe) {
@@ -465,8 +484,13 @@ async function choose(
   history: string[],
   requestLimit: number,
   signal: AbortSignal,
+  goal: "dragon" | "smelt_iron" = "dragon",
 ): Promise<Decision> {
-  const state = observation(bot, history);
+  const state = observation(bot, history, goal);
+  const goalPrompt =
+    goal === "smelt_iron"
+      ? 'Goal: obtain one iron_ingot by mining iron ore and smelting raw_iron in a furnace as quickly as possible through ordinary Survival gameplay. Stop after the ingot is verified in inventory. Gather wood, craft a wooden pickaxe and then a stone pickaxe, mine one iron ore, collect at least 8 cobblestone for a furnace, keep wood for fuel, craft and place the furnace, then smelt the raw iron. Do not spend wood on weapons, armor, or other unrelated items. For smelt_item, YOU MUST set both item to raw_iron and fuel to the exact name of a combustible inventory item such as dark_oak_planks or dark_oak_log. Example: {"action":"smelt_item","item":"raw_iron","fuel":"dark_oak_planks","reason":"Smelt the iron"}. Omitting fuel will fail.'
+      : "Goal: defeat the Ender Dragon as quickly as possible through ordinary Survival gameplay. You must gather resources, reach the Nether, acquire blaze powder and ender pearls, find a stronghold with Eyes of Ender, activate its End portal, destroy healing crystals, and kill the dragon.";
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     {
@@ -478,13 +502,13 @@ async function choose(
           {
             parts: [
               {
-                text: `You are the sole decision maker for a Minecraft Java 26.1 Survival bot. Goal: defeat the Ender Dragon as quickly as possible through ordinary Survival gameplay. You have a hard budget of ${requestLimit} API requests for this run. You must gather resources, reach the Nether, acquire blaze powder and ender pearls, find a stronghold with Eyes of Ender, activate its End portal, destroy healing crystals, and kill the dragon. Never use game commands, teleportation, creative mode, or unseen world data. Choose ONE action per response. Valid actions: move(direction north/south/east/west, distance 1-12), only through open space; dig_block(x,y,z from visibleBlocks, which walks near the selected block first if needed); dig_down(distance 1-12), which mines beneath your feet and stops before an unreasonably large fall; dig_tunnel(direction, distance 1-24), which mines and walks a two-block-high horizontal tunnel and bridges gaps with carried cobblestone or dirt; collect_drop(targetId of visible item); craft_item(item from craftableItems); place_block(item from inventory, absolute x,y,z from placeableCells); equip_item(item from inventory); attack_entity(targetId of nearby nonplayer entity within reach 3); eat_item(item of food in inventory); use_item(item in inventory, e.g. throw Eye of Ender); use_item_on_block(item in inventory, x,y,z of visible reachable block, e.g. flint and steel); smelt_item(item input, fuel from inventory, with nearby furnace); shoot_bow(targetId of nearby entity); wait. Use adjacentRoutes to choose a viable direction after movement or digging fails; do not reverse through a tunnel you just used or repeat actions with no position progress. The program only executes the action you choose and rejects invalid actions. Plan economically, use the observed world state, and avoid repeating failures. Current state: ${JSON.stringify(state)}.`,
+                text: `You are the sole decision maker for a Minecraft Java 26.1 Survival bot. ${goalPrompt} You have a hard budget of ${requestLimit} API requests for this run. Never use game commands, teleportation, creative mode, or unseen world data. Choose ONE action per response. Valid actions: move(direction north/south/east/west, distance 1-12), only through open space; dig_block(x,y,z from visibleBlocks, which walks near the selected block first if needed); dig_down(distance 1-12), which mines beneath your feet and stops before an unreasonably large fall; dig_tunnel(direction, distance 1-24), which mines and walks a two-block-high horizontal tunnel and bridges gaps with carried cobblestone or dirt; collect_drop(targetId of visible item); craft_item(item from craftableItems); place_block(item from inventory, absolute x,y,z from placeableCells); equip_item(item from inventory); attack_entity(targetId of nearby nonplayer entity within reach 3); eat_item(item of food in inventory); use_item(item in inventory, e.g. throw Eye of Ender); use_item_on_block(item in inventory, x,y,z of visible reachable block, e.g. flint and steel); smelt_item(item input, fuel from inventory, with nearby furnace); shoot_bow(targetId of nearby entity); wait. Use adjacentRoutes to choose a viable direction after movement or digging fails; do not reverse through a tunnel you just used or repeat actions with no position progress. The program only executes the action you choose and rejects invalid actions. Plan economically, use the observed world state, and avoid repeating failures. Current state: ${JSON.stringify(state)}.`,
               },
             ],
           },
         ],
         generationConfig: {
-          maxOutputTokens: 512,
+          maxOutputTokens: 1024,
           thinkingConfig: { thinkingLevel: "low" },
           responseMimeType: "application/json",
           responseSchema: {
@@ -524,7 +548,11 @@ async function choose(
               distance: { type: "INTEGER" },
               reason: { type: "STRING" },
             },
-            required: ["action", "reason"],
+            required:
+              goal === "smelt_iron" &&
+              bot.inventory.items().some((item) => item.name === "raw_iron")
+                ? ["action", "reason", "fuel"]
+                : ["action", "reason"],
           },
         },
       }),
@@ -970,6 +998,7 @@ async function execute(bot: Bot, decision: Decision, signal: AbortSignal) {
       for (let i = 0; i < 15; i++) {
         if (furnace.outputItem()) {
           await furnace.takeOutput();
+          await delay(1500, signal);
           return true;
         }
         await delay(1000, signal);
@@ -990,9 +1019,10 @@ export function geminiDragonRun(
   bot: Bot,
   log: Log,
   stop: (reason: string, code?: number) => void,
+  goal: "dragon" | "smelt_iron" = "dragon",
 ) {
   const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY is required for --gemini-dragon");
+  if (!key) throw new Error("GEMINI_API_KEY is required");
   const model = process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite";
   if (!/^[a-zA-Z0-9._-]+$/.test(model)) throw new Error("Invalid GEMINI_MODEL");
   const requestLimit = Number(
@@ -1017,6 +1047,16 @@ export function geminiDragonRun(
   let requests = 0;
   let lastRequestAt = 0;
   let attackedDragonAt = 0;
+  const reachedSmeltGoal = () =>
+    goal === "smelt_iron" &&
+    bot.inventory
+      .items()
+      .some((item) => item.name === "iron_ingot" && item.count > 0);
+  const stopForSmeltGoal = () => {
+    log("gemini_smelt_goal_reached", { requests, player: observePlayer(bot) });
+    controller.abort();
+    stop("gemini_smelt_goal_reached");
+  };
   const onDead = (entity: { name?: string }) => {
     if (
       entity.name === "ender_dragon" &&
@@ -1033,13 +1073,22 @@ export function geminiDragonRun(
       return;
     }
     bot.on("entityDead", onDead);
-    log("gemini_dragon_ready", { model, requestLimit });
+    log(goal === "smelt_iron" ? "gemini_smelt_ready" : "gemini_dragon_ready", {
+      model,
+      requestLimit,
+    });
     const deadline = Date.now() + MAX_RUNTIME_MS;
     while (
       requests < requestLimit &&
       Date.now() < deadline &&
       !controller.signal.aborted
     ) {
+      if (reachedSmeltGoal()) {
+        await delay(2000, controller.signal);
+        if (!reachedSmeltGoal()) continue;
+        stopForSmeltGoal();
+        break;
+      }
       const pause = MIN_REQUEST_INTERVAL_MS - (Date.now() - lastRequestAt);
       if (pause > 0) await delay(pause, controller.signal);
       const requestAction = () => {
@@ -1054,34 +1103,38 @@ export function geminiDragonRun(
           history,
           requestLimit,
           AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]),
+          goal,
         );
       };
       let decision: Decision;
-      try {
-        decision = await requestAction();
-      } catch (error) {
-        const transient =
-          error instanceof Error &&
-          (error.message === "Gemini HTTP 429" ||
-            error.message === "Gemini HTTP 503" ||
-            error.message === "Invalid Gemini JSON" ||
-            error.message === "No Gemini decision" ||
-            error.message === "Invalid Gemini decision" ||
-            error.message === "Invalid Gemini action" ||
-            error.name === "TimeoutError");
-        if (!transient || requests >= requestLimit) throw error;
-        log("gemini_dragon_retry", {
-          requests,
-          reason: error instanceof Error ? error.message : "temporary error",
-        });
-        await delay(
-          error instanceof Error &&
-            /^Gemini HTTP (429|503)$/.test(error.message)
-            ? 30000
-            : 2000,
-          controller.signal,
-        );
-        decision = await requestAction();
+      for (let attempt = 0; ; attempt++) {
+        try {
+          decision = await requestAction();
+          break;
+        } catch (error) {
+          const transient =
+            error instanceof Error &&
+            (error.message === "Gemini HTTP 429" ||
+              error.message === "Gemini HTTP 503" ||
+              error.message === "Invalid Gemini JSON" ||
+              error.message === "No Gemini decision" ||
+              error.message === "Invalid Gemini decision" ||
+              error.message === "Invalid Gemini action" ||
+              error.name === "TimeoutError");
+          if (!transient || requests >= requestLimit || attempt >= 2)
+            throw error;
+          log("gemini_dragon_retry", {
+            requests,
+            reason: error instanceof Error ? error.message : "temporary error",
+          });
+          await delay(
+            error instanceof Error &&
+              /^Gemini HTTP (429|503)$/.test(error.message)
+              ? 30000
+              : 2000,
+            controller.signal,
+          );
+        }
       }
       if (controller.signal.aborted) break;
       log("gemini_dragon_decision", { requests, ...decision });
@@ -1110,7 +1163,7 @@ export function geminiDragonRun(
       const entity =
         decision.targetId === undefined ? "" : `#${decision.targetId}`;
       history.push(
-        `${decision.action}${decision.item ? `:${decision.item}` : ""}${decision.direction ? `:${decision.direction}` : ""}${decision.distance ? `/${decision.distance}` : ""}${target}${entity}:${ok ? "ok" : "failed"};position ${before.x},${before.y},${before.z}->${bot.entity.position.floored().x},${bot.entity.position.floored().y},${bot.entity.position.floored().z}`,
+        `${decision.action}${decision.item ? `:${decision.item}` : ""}${decision.direction ? `:${decision.direction}` : ""}${decision.distance ? `/${decision.distance}` : ""}${target}${entity}:${ok ? "ok" : "failed"}${decision.action === "smelt_item" && !decision.fuel ? " (missing fuel field)" : ""};position ${before.x},${before.y},${before.z}->${bot.entity.position.floored().x},${bot.entity.position.floored().y},${bot.entity.position.floored().z}`,
       );
       log("gemini_dragon_action_result", {
         requests,
@@ -1118,8 +1171,18 @@ export function geminiDragonRun(
         ok,
         player: observePlayer(bot),
       });
+      if (reachedSmeltGoal()) {
+        await delay(2000, controller.signal);
+        if (!reachedSmeltGoal()) continue;
+        stopForSmeltGoal();
+        break;
+      }
     }
-    if (!controller.signal.aborted) stop("gemini_dragon_limit", 1);
+    if (!controller.signal.aborted)
+      stop(
+        goal === "smelt_iron" ? "gemini_smelt_limit" : "gemini_dragon_limit",
+        1,
+      );
   })().catch((error: unknown) => {
     if (controller.signal.aborted) return;
     const reason =
