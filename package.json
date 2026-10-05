@@ -13,6 +13,7 @@
     "start": "node --env-file-if-exists=.env dist/src/main.js",
     "demo": "node --env-file-if-exists=.env dist/src/main.js --movement-demo",
     "gemini:demo": "node --env-file-if-exists=.env dist/src/main.js --gemini-demo",
+    "gemini:play": "node --env-file-if-exists=.env dist/src/main.js --gemini-play",
     "trace:motion": "node --env-file-if-exists=.env dist/src/main.js --motion-trace",
     "test": "pnpm build && node --test dist/test/*.test.js",
     "lint": "prettier --check .",
@@ -20,11 +21,12 @@
     "check": "pnpm typecheck && pnpm test && pnpm lint"
   },
   "dependencies": {
-    "mineflayer": "4.39.0"
+    "mineflayer": "4.39.0",
+    "mineflayer-pathfinder": "2.4.5"
   },
   "devDependencies": {
     "@types/node": "24.13.6",
-    "typescript": "7.0.2",
-    "prettier": "3.9.9"
+    "prettier": "3.9.9",
+    "typescript": "7.0.2"
   }
 }

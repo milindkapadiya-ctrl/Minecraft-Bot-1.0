@@ -2,7 +2,7 @@
 
 This repository contains source code and configuration templates. It does not include a server jar, world, local runtimes, dependencies, logs, or credentials. The supplied Windows `.cmd` launchers expect separately installed portable runtimes and a local server, so use the terminal instructions below for a fresh clone.
 
-A small TypeScript/Mineflayer foundation for a future autonomous Ender Dragon run. **Milestones 0–1 plus the first slice of Milestone 2:** connection/state reporting and validated short look/movement actions. The optional Gemini mode is a bounded decision demo; there is no pathfinding or resource acquisition. Normal startup remains idle.
+A small TypeScript/Mineflayer foundation for a future autonomous Ender Dragon run. **Milestones 0–1 plus the first slice of Milestone 2:** connection/state reporting and validated short look/movement actions. Optional Gemini modes provide a tiny decision demo and a bounded local play experiment with walking pathfinding and visible log digging. Normal startup remains idle.
 
 ## Bounded Gemini decision demo
 
@@ -16,6 +16,21 @@ pnpm gemini:demo
 ```
 
 The mode logs selected action names and results but never logs the credential or raw model response. It makes at most four API requests, with no automatic retries. `GEMINI_MODEL` defaults to `gemini-3.5-flash-lite`; the exact model can be changed in `.env`. API requests may incur charges. Stop it at any time with Ctrl+C. The regular `pnpm start` and `pnpm demo` modes do not use Gemini.
+
+## Local Gemini play experiment
+
+`pnpm gemini:play` runs a longer, supervised loop: Gemini chooses short walking routes, can approach a **visible** tree log, dig a log within reach, and collect a nearby drop. Walking uses `mineflayer-pathfinder` with digging, placing, sprinting, and parkour disabled. The bot stops after collecting one log, or on damage, death, a 40-block radius, Ctrl+C, five minutes, or 24 decisions. Model calls are spaced by at least five seconds; a temporary rate-limit, server-busy, or timeout response may get one 30-second retry, with a total cap of 26 API requests. This is early Survival play, not crafting, combat, or an Ender Dragon agent.
+
+For a separate fresh local server, copy the 26.1 server jar and `server-config/server.properties` into a new directory, change `server-port` to `25566`, and follow the EULA and launch steps below. Keep that server bound to `127.0.0.1`. On this Mac, with the new server running, use:
+
+```sh
+pnpm build
+MC_PORT=25566 pnpm gemini:play
+```
+
+Join from Minecraft Java 26.1 at `127.0.0.1:25566` to watch. Keep `GEMINI_API_KEY` in the ignored `.env` file. If Gemini reaches the account's rate or daily quota, the bot stops after its bounded retry; check your active limit in Google AI Studio. Each run records decisions and action results in `logs/` without the key or raw model response.
+
+After a successful one-log run, the same player already has a log and exits immediately on the next run. To watch a fresh run in this test world, use a new local bot name such as `MC_USERNAME=SurvivalBot2 MC_PORT=25566 pnpm gemini:play`.
 
 ## Quick start on macOS
 

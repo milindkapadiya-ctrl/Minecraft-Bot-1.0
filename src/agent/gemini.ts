@@ -18,7 +18,10 @@ const MAX_RADIUS = 2;
 const STEP_MS = 150;
 const hazards = /water|lava|fire|cactus|cobweb|powder_snow|sweet_berry_bush/;
 
-function waitForPlayable(bot: Bot, signal: AbortSignal): Promise<boolean> {
+export function waitForPlayable(
+  bot: Bot,
+  signal: AbortSignal,
+): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false;
     const playable = () =>

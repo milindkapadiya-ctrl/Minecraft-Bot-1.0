@@ -7,6 +7,7 @@
 - Milestone 2 first slice — implemented. Short forward movement and early cancellation both passed live with user visual confirmation and logged control release/settling. Broader movement acceptance remains pending. See `docs/validation.md` for evidence and `docs/movement-validation.md` for remaining checks.
 - Knockback — version-scoped own-entity correction implemented; 27 tests passed and user confirmed a post-fix hit looks normal. Further post-hit movement validation remains pending. Dependencies remain pinned. See latest validation entries. Usage-conservation handoff: `docs/RESUME.md`.
 - Experimental Gemini demo on `milind-api-testing` — at most four model decisions, limited to short turns/steps near the starting point. A live local run chose `step_forward` and then `stop`. This is not navigation, resource gathering, or the Milestone 4 general agent.
+- Experimental local Gemini play mode — bounded walking-only pathfinding, visible log digging, and dropped-item collection on a separate test world. A live run collected one log. Rate pacing, request count, radius, time, and damage stop keep the run finite. Crafting, combat, durable memory, and a spending ledger remain future work.
 - Validation results are recorded in `docs/validation.md`. Fake-event tests do not establish live-server success.
 
 ## Later milestones (not implemented)

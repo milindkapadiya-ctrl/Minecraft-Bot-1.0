@@ -74,3 +74,11 @@ Added `scripts/test-server.mjs` / **Start Test Server.cmd** at the user's reques
 ### Joining while dead
 
 The user's log `2026-09-25T05-31-14-023Z-c5cdcbab-a96e-4e86-8c45-528eb0cad971.jsonl` shows death before any spawn. Installed Mineflayer's health plugin emits death when it receives nonpositive health and does not emit initial spawn for that packet. This is consistent with persisted death after the previous kill; no world files were read or changed to investigate. Added explicit `--respawn-once` / **Respawn Bot Once.cmd** recovery: one ordinary respawn only before first spawn, original connection deadline retained, disconnect five seconds after successful spawn, later deaths still stop. Added tests for recovery, post-spawn death, repeat-death prevention, and timeout. Live recovery remains to be checked by the user.
+
+## Local Gemini play experiment — 2026-10-04
+
+A fresh separate Minecraft Java 26.1 server ran on `127.0.0.1:25566` in `work/ai-server-26.1`. The user had already accepted the Minecraft EULA for this local server setup. `pnpm check` passed 29 tests, typechecking, and formatting after the play mode was added.
+
+In the final live run, Gemini 3.5 Flash-Lite selected `approach_visible_log`, `chop_visible_log`, and `collect_nearby_drop`. The bot walked on the new world, dug a visible tree log, moved to its dropped item, and `gemini_play_goal_reached` confirmed a log in inventory. Health remained 20. One temporary HTTP 503 triggered the bounded 30-second retry and the run then completed with exit code 0. Evidence is in the local ignored log `work/gemini-play-logs/2026-10-05T01-14-51-018Z-f425069a-76e3-4a1d-a3c8-9bb0e15c586c.jsonl`; the world and key are not in Git.
+
+This validates one local Survival goal only. Crafting, combat, persistent memory, general goals, and a hard monetary spending gate are not implemented.

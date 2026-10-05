@@ -5,6 +5,9 @@ import { movementConsole } from "./demo.js";
 import { traceMotion } from "./telemetry/motion.js";
 import { installVelocityCompatibility } from "./minecraft/velocity-compat.js";
 import { geminiDemo } from "./agent/gemini.js";
+import { geminiPlay } from "./agent/play.js";
+import mineflayer from "mineflayer";
+import pathfinderPackage from "mineflayer-pathfinder";
 
 async function main() {
   const config = readConfig(process.env);
@@ -14,6 +17,7 @@ async function main() {
     (mode !== undefined &&
       mode !== "--movement-demo" &&
       mode !== "--gemini-demo" &&
+      mode !== "--gemini-play" &&
       mode !== "--motion-trace" &&
       mode !== "--respawn-once")
   )
@@ -25,21 +29,31 @@ async function main() {
         ? 5000
         : mode === "--gemini-demo"
           ? 90000
-          : 600000;
+          : mode === "--gemini-play"
+            ? 300000
+            : 600000;
   const { log, file } = createLogger(config.logDir);
   log("session_started", {
     logFile: file,
     milestone:
       mode === "--gemini-demo"
         ? "gemini-limited-demo"
-        : mode === "--movement-demo"
-          ? "2-first-slice"
-          : 1,
+        : mode === "--gemini-play"
+          ? "gemini-local-play"
+          : mode === "--movement-demo"
+            ? "2-first-slice"
+            : 1,
   });
   const session = startSession(
     config,
     log,
-    undefined,
+    mode === "--gemini-play"
+      ? (options) => {
+          const bot = mineflayer.createBot(options);
+          bot.loadPlugin(pathfinderPackage.pathfinder);
+          return bot;
+        }
+      : undefined,
     (bot) => {
       const disposeCompatibility = installVelocityCompatibility(bot, log, () =>
         session.stop("invalid_velocity", 1),
@@ -52,9 +66,13 @@ async function main() {
               ? geminiDemo(bot, log, (reason, code) =>
                   session.stop(reason, code),
                 )
-              : mode === "--motion-trace"
-                ? traceMotion(bot, log)
-                : undefined;
+              : mode === "--gemini-play"
+                ? geminiPlay(bot, log, (reason, code) =>
+                    session.stop(reason, code),
+                  )
+                : mode === "--motion-trace"
+                  ? traceMotion(bot, log)
+                  : undefined;
         return () => {
           disposeMode?.();
           disposeCompatibility();
