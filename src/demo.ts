@@ -3,17 +3,25 @@ import type { Bot } from "mineflayer";
 import type { Log } from "./telemetry/logger.js";
 import { ActionRunner } from "./actions/runner.js";
 import { traceMotion } from "./telemetry/motion.js";
+import type { Target } from "./actions/local.js";
 
 export function movementConsole(bot: Bot, log: Log, stop: () => void) {
   const runner = new ActionRunner(bot, log);
   const disposeTrace = traceMotion(bot, log);
   const input = createInterface({ input: process.stdin, terminal: false });
   let sequence: AbortController | undefined;
+  let targets: Target[] = [];
   log("demo_ready", {
     commands: [
       "look <yawDegrees> <pitchDegrees>",
       "move <forward|back|left|right> <100..2000 ms>",
       "demo",
+      "inspect",
+      "inventory",
+      "approach <block index from last inspect, starting at 0>",
+      "dig <block index from last inspect, starting at 0>",
+      "step_up <adjacent raised block index from last inspect>",
+      "step_down <adjacent lower support index from last inspect>",
       "cancel",
       "quit",
     ],
@@ -71,6 +79,19 @@ export function movementConsole(bot: Bot, log: Log, stop: () => void) {
           timeoutMs: 2500,
         },
       ];
+    } else if (
+      ["inspect", "inventory"].includes(command ?? "") &&
+      args.length === 1
+    ) {
+      actions = [{ type: command, timeoutMs: 1000 }];
+    } else if (
+      ["approach", "dig", "step_up", "step_down"].includes(command ?? "") &&
+      args.length === 2 &&
+      /^\d+$/.test(args[1]!)
+    ) {
+      actions = [
+        { type: command, target: targets[Number(args[1])], timeoutMs: 5000 },
+      ];
     } else {
       log("demo_invalid_command");
       return;
@@ -80,6 +101,11 @@ export function movementConsole(bot: Bot, log: Log, stop: () => void) {
       for (const action of actions) {
         if (controller.signal.aborted) break;
         const result = await runner.run(action, controller.signal);
+        if (result.action === "inspect" && result.ok) {
+          targets = (result.details?.blocks as { target: Target }[]).map(
+            (b) => b.target,
+          );
+        }
         if (!result.ok) break;
       }
     })()
