@@ -11,6 +11,7 @@ import {
   inventory,
   targetBlock,
   safeDig,
+  safeChopLog,
   eyeHeight,
   type Target,
 } from "./local.js";
@@ -18,7 +19,8 @@ import {
 export type Action =
   | { type: "inspect" | "inventory"; timeoutMs: number }
   | {
-      type: "approach" | "dig" | "step_up" | "step_down" | "walk_to";
+      type:
+        "approach" | "dig" | "chop_log" | "step_up" | "step_down" | "walk_to";
       target: Target;
       timeoutMs: number;
     }
@@ -122,6 +124,7 @@ export function validateAction(value: unknown): Action | null {
     (a.type === "walk_to" ||
       a.type === "approach" ||
       a.type === "dig" ||
+      a.type === "chop_log" ||
       a.type === "step_up" ||
       a.type === "step_down") &&
     Object.keys(a).every((k) => ["type", "target", "timeoutMs"].includes(k))
@@ -232,7 +235,12 @@ export class ActionRunner {
         location?: { x: number; y: number; z: number };
         type?: number;
       }) => {
-        if (action.type !== "dig" || !digStarted || !packet.location) return;
+        if (
+          (action.type !== "dig" && action.type !== "chop_log") ||
+          !digStarted ||
+          !packet.location
+        )
+          return;
         const t = action.target;
         if (
           packet.location.x === t.x &&
@@ -276,7 +284,7 @@ export class ActionRunner {
         this.bot.off("entityHurt", hurt);
         this.bot.off("health", health);
         this.bot.off("game", game);
-        if (action.type === "dig") {
+        if (action.type === "dig" || action.type === "chop_log") {
           this.bot._client.off("block_change", serverBlock);
           this.bot._client.off("multi_block_change", serverBlocks);
         }
@@ -287,7 +295,7 @@ export class ActionRunner {
         }
         try {
           this.bot.clearControlStates();
-          if (action.type === "dig")
+          if (action.type === "dig" || action.type === "chop_log")
             details.inventoryAfter = inventory(this.bot);
         } catch {
           code = "execution_error";
@@ -331,7 +339,7 @@ export class ActionRunner {
           return;
         }
         if (
-          action.type === "dig" &&
+          (action.type === "dig" || action.type === "chop_log") &&
           digDone &&
           confirmedAt !== undefined &&
           performance.now() - confirmedAt >= 500
@@ -365,7 +373,7 @@ export class ActionRunner {
       this.bot.on("entityHurt", hurt);
       this.bot.on("health", health);
       this.bot.on("game", game);
-      if (action.type === "dig") {
+      if (action.type === "dig" || action.type === "chop_log") {
         this.bot._client.on("block_change", serverBlock);
         this.bot._client.on("multi_block_change", serverBlocks);
       }
@@ -452,7 +460,11 @@ export class ActionRunner {
               lookApplied = true;
             })
             .catch(() => finish("execution_error"));
-        } else if (action.type === "approach" || action.type === "dig") {
+        } else if (
+          action.type === "approach" ||
+          action.type === "dig" ||
+          action.type === "chop_log"
+        ) {
           target = targetBlock(this.bot, action.target);
           if (!target) {
             details.reason = "target_not_visible_or_changed";
@@ -462,16 +474,20 @@ export class ActionRunner {
           if (
             action.type === "approach"
               ? !prepareFlat(this.bot, action.target, details)
-              : !safeDig(this.bot, target)
+              : action.type === "chop_log"
+                ? !safeChopLog(this.bot, target)
+                : !safeDig(this.bot, target)
           ) {
             details.reason =
               action.type === "approach"
                 ? "requires_clear_flat_route"
-                : "requires_reachable_surface_dirt_outside_support";
+                : action.type === "chop_log"
+                  ? "requires_visible_reachable_log_outside_support"
+                  : "requires_reachable_surface_dirt_outside_support";
             finish("not_ready");
             return;
           }
-          if (action.type === "dig") {
+          if (action.type === "dig" || action.type === "chop_log") {
             details.inventoryBefore = inventory(this.bot);
             details.serverConfirmedAir = false;
           }
@@ -497,7 +513,9 @@ export class ActionRunner {
               } else {
                 if (
                   !targetBlock(this.bot, action.target) ||
-                  !safeDig(this.bot, target!)
+                  !(action.type === "chop_log"
+                    ? safeChopLog(this.bot, target!)
+                    : safeDig(this.bot, target!))
                 ) {
                   finish("not_ready");
                   return;

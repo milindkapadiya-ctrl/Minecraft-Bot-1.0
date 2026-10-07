@@ -12,7 +12,7 @@ Build a watchable Minecraft Java Survival agent that eventually defeats the Ende
 - Use pnpm and commit its lockfile. Run pnpm check after behavioral changes. Test lifecycle/failure behavior with fakes and record real-server validation separately; mocks cannot prove protocol compatibility.
 - Keep documentation beginner-friendly. Add abstractions when needed, not placeholder implementations for distant milestones.
 
-- Architecture direction: strategic LLM/API → task coordination → fast local tactical policy → deterministic body/tools. Current streams build only bounded body capabilities suitable for future tactical selection; no speculative APIs, neural training or model integration. Immediate safety must not depend on external API latency. See `docs/PROJECT_CONTEXT.md` for the future structured experience/evaluation loop and undecided policy design.
+- Architecture direction: strategic LLM/API → task coordination → fast local tactical policy → deterministic body/tools. The opt-in `docs/neural-pickaxe.md` experiment adds a narrow local policy for one crafting milestone; the three original workstreams remain bounded body/tool work. No external AI/API service is part of this experiment. Immediate safety must not depend on external API latency. See `docs/PROJECT_CONTEXT.md` for the future full-game architecture.
 
 ## Collaboration
 

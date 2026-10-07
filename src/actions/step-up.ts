@@ -1,5 +1,6 @@
 import type { Bot } from "mineflayer";
 import { eyeHeight, targetBlock, visibleRay, type Target } from "./local.js";
+import { stableSupport } from "./support.js";
 
 type Point = { x: number; y: number; z: number };
 type Block = ReturnType<Bot["blockAt"]>;
@@ -14,12 +15,7 @@ export interface StepPlan {
 }
 export const vector = (bot: Bot, p: Point) =>
   bot.entity.position.clone().set(p.x, p.y, p.z);
-export const support = (b: Block) =>
-  b &&
-  (["grass_block", "dirt", "stone", "cobblestone"].includes(b.name) ||
-    b.name.endsWith("_planks")) &&
-  b.shapes.length === 1 &&
-  b.shapes[0]?.join() === "0,0,0,1,1,1";
+export const support = stableSupport;
 export const clear = (b: Block) =>
   b &&
   b.shapes.length === 0 &&

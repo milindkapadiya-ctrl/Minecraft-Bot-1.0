@@ -4,6 +4,7 @@ import { createLogger } from "./telemetry/logger.js";
 import { movementConsole } from "./demo.js";
 import { traceMotion } from "./telemetry/motion.js";
 import { installVelocityCompatibility } from "./minecraft/velocity-compat.js";
+import { startPickaxeAgent } from "./agent/pickaxe-agent.js";
 
 async function main() {
   const config = readConfig(process.env);
@@ -13,15 +14,28 @@ async function main() {
     (mode !== undefined &&
       mode !== "--movement-demo" &&
       mode !== "--motion-trace" &&
-      mode !== "--respawn-once")
+      mode !== "--respawn-once" &&
+      mode !== "--pickaxe-teacher" &&
+      mode !== "--pickaxe-neural")
   )
     throw new Error("Unknown CLI option");
   // Independent bounded diagnostic session; do not inherit an old 15s smoke setting.
-  if (mode) config.runDurationMs = mode === "--respawn-once" ? 5000 : 600000;
+  if (mode)
+    config.runDurationMs =
+      mode === "--respawn-once"
+        ? 5000
+        : mode === "--pickaxe-teacher" || mode === "--pickaxe-neural"
+          ? 30 * 60 * 1000
+          : 600000;
   const { log, file } = createLogger(config.logDir);
   log("session_started", {
     logFile: file,
-    milestone: mode === "--movement-demo" ? "2-first-slice" : 1,
+    milestone:
+      mode === "--pickaxe-teacher" || mode === "--pickaxe-neural"
+        ? "neural-pickaxe-experiment"
+        : mode === "--movement-demo"
+          ? "2-first-slice"
+          : 1,
     apiRequests: 0,
     estimatedCostUsd: 0,
   });
@@ -39,7 +53,14 @@ async function main() {
             ? movementConsole(bot, log, () => session.stop("demo_finished"))
             : mode === "--motion-trace"
               ? traceMotion(bot, log)
-              : undefined;
+              : mode === "--pickaxe-teacher" || mode === "--pickaxe-neural"
+                ? startPickaxeAgent(
+                    bot,
+                    log,
+                    (reason, code) => session.stop(reason, code),
+                    mode === "--pickaxe-teacher",
+                  )
+                : undefined;
         return () => {
           disposeMode?.();
           disposeCompatibility();

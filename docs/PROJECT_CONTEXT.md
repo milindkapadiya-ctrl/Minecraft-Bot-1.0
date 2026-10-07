@@ -1,6 +1,6 @@
 # Project context: why this architecture exists
 
-This is durable background. Read [RESUME](RESUME.md) for current versions, test baseline, bot state and workstream links; read [ROADMAP](../ROADMAP.md) for dated checkpoints. This document does not authorize future milestones.
+This is durable background. Read [RESUME](RESUME.md) for current versions, test baseline, bot state and workstream links; read [ROADMAP](../ROADMAP.md) for dated checkpoints. This document does not authorize future milestones. A later, opt-in [neural pickaxe experiment](neural-pickaxe.md) implements one narrow local policy; statements below about no learned policy describe the earlier foundation and do not claim a full-game system.
 
 ## Goal and progression
 

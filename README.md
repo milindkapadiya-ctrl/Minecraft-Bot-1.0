@@ -8,6 +8,8 @@ For the original development folder (portable runtimes and worlds are not includ
 
 A small TypeScript/Mineflayer foundation for a future autonomous, legitimate Ender Dragon run. **Milestones 0–1 plus the first slice of Milestone 2:** connection/state reporting and validated short look/movement actions. A supplied-terrain planner and route executor now exist offline; live planned navigation and autonomous resource acquisition remain pending. No AI calls. Normal startup remains idle. Read [the current handoff](docs/RESUME.md) and [team workflow](docs/TEAM_WORKFLOW.md) before continuing development.
 
+An opt-in [neural wooden-pickaxe experiment](docs/neural-pickaxe.md) now adds a local candidate-scoring policy, synthetic bootstrap, teacher demonstrations, and isolated fresh-world trials. It has **not** passed a held-out pickaxe benchmark, and default startup remains idle. It makes no external AI/API calls.
+
 For Work's exact movement and knockback validation commands, see [movement-validation.md](docs/movement-validation.md). Build with `pnpm.cmd check`, then run `pnpm.cmd demo` or **Start Movement Demo.cmd**. The console waits for commands and caps the session at ten minutes. Read the ground-clearance and cancellation steps before moving. The [knockback investigation](docs/knockback-investigation.md) distinguishes the confirmed dependency scaling mismatch from the still-unverified cause of the user's live hit.
 
 If it disconnects with `death` immediately on joining after being killed, run **Respawn Bot Once.cmd**, wait for it to spawn and disconnect, then start the demo again. This requests one ordinary respawn; normal gameplay still stops on death.

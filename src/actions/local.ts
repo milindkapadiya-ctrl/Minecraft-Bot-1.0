@@ -1,4 +1,5 @@
 import type { Bot } from "mineflayer";
+import { stableSupport } from "./support.js";
 
 export type Target = { x: number; y: number; z: number; stateId: number };
 type Block = NonNullable<ReturnType<Bot["blockAt"]>>;
@@ -6,7 +7,6 @@ type Block = NonNullable<ReturnType<Bot["blockAt"]>>;
 // from its transitive type declarations (worldsync.js returns the hit Block).
 export const eyeHeight = (bot: Bot) =>
   (bot.entity as Bot["entity"] & { eyeHeight?: number }).eyeHeight ?? 1.62;
-const ground = new Set(["grass_block", "dirt", "stone", "cobblestone"]);
 export const inventory = (bot: Bot) =>
   bot.inventory.items().map(({ name, count, slot }) => ({ name, count, slot }));
 const point = (bot: Bot, p: { x: number; y: number; z: number }) =>
@@ -92,6 +92,23 @@ export function safeDig(bot: Bot, b: Block) {
   );
 }
 
+// The policy may mine a visible tree trunk, but never its own footing or an
+// arbitrary hidden block supplied by coordinates. targetBlock performs the
+// current-view and state-ID check before this predicate is used.
+export function safeChopLog(bot: Bot, b: Block) {
+  const p = bot.entity.position;
+  const eye = p.offset(0, eyeHeight(bot), 0);
+  return (
+    b.name.endsWith("_log") &&
+    b.position.y >= Math.floor(p.y) &&
+    b.position.distanceTo(p.floored().offset(0, -1, 0)) > 1 &&
+    eye.distanceTo(b.position.offset(0.5, 0.5, 0.5)) <= 4.25 &&
+    bot.entity.onGround &&
+    bot.canDigBlock(b) &&
+    bot.digTime(b) <= 3000
+  );
+}
+
 // A conservative straight, flat corridor. No jumping, slopes, fluids, doors,
 // digging routes, or general pathfinding. Every support surface must be visible.
 export function flatRoute(
@@ -129,12 +146,7 @@ export function flatRoute(
           .offset((dx / distance) * d + ox, -0.05, (dz / distance) * d + oz)
           .floored();
         const support = bot.blockAt(foot);
-        if (
-          !support ||
-          !(ground.has(support.name) || support.name.endsWith("_planks")) ||
-          support.shapes.length !== 1 ||
-          support.shapes[0]?.join() !== "0,0,0,1,1,1"
-        )
+        if (!support || !stableSupport(support))
           return refuse("unsupported_floor", foot);
         const eye = p.offset(0, eyeHeight(bot), 0);
         const delta = foot.offset(0.5, 1, 0.5).minus(eye);

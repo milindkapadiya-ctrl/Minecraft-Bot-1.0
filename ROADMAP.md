@@ -2,11 +2,11 @@
 
 ## Current project status
 
-Milestones 0–1 and the first Milestone 2 slice are implemented; Milestone 2 remains incomplete. Current baseline: **183 tests plus typecheck/build/format** (last established 2026-10-04, not rerun for collaboration setup). Planner/executor and walk_to have offline evidence; planned navigation and walk_to have no successful live validation. Emergency surfacing passed live; surface hold is offline only. No AI integration or general resource routines.
+Milestones 0–1 and the first Milestone 2 slice are implemented; Milestone 2 remains incomplete. The original baseline was **183 tests plus typecheck/build/format** (2026-10-04); the pickaxe branch passes **195 tests and TypeScript build on Node 24** (2026-10-07). Planner/executor and walk_to have offline evidence; planned navigation and walk_to have no successful live validation. Emergency surfacing passed live; surface hold is offline only. An opt-in [local neural pickaxe experiment](docs/neural-pickaxe.md) is now present, without demonstrated held-out pickaxe success or external AI/API calls. It is not a general resource routine.
 
 Read [RESUME](docs/RESUME.md) for current state and [team workflow](docs/TEAM_WORKFLOW.md) for coordination. Active assignments: [surface recovery](docs/workstreams/surface-recovery.md), [navigation live](docs/workstreams/navigation-live.md), [resource acquisition](docs/workstreams/resource-acquisition.md). Each owns its next checkpoint. Historical next-task suggestions below are not current assignments.
 
-The three workstreams remain deterministic body/tool work. The [layered architecture and learning loop](docs/PROJECT_CONTEXT.md#intended-layered-control-architecture) describe future direction, not implemented policy/training infrastructure or additional current assignments.
+The three original workstreams remain deterministic body/tool work. The separate pickaxe experiment implements a narrow local policy and training loop. The [layered architecture](docs/PROJECT_CONTEXT.md#intended-layered-control-architecture) still describes the unbuilt full-game system.
 
 ## Recorded milestone evidence (historical counts)
 
