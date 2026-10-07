@@ -1,6 +1,14 @@
 # Roadmap
 
-## Current status
+## Current project status
+
+Milestones 0–1 and the first Milestone 2 slice are implemented; Milestone 2 remains incomplete. Current baseline: **183 tests plus typecheck/build/format** (last established 2026-10-04, not rerun for collaboration setup). Planner/executor and walk_to have offline evidence; planned navigation and walk_to have no successful live validation. Emergency surfacing passed live; surface hold is offline only. No AI integration or general resource routines.
+
+Read [RESUME](docs/RESUME.md) for current state and [team workflow](docs/TEAM_WORKFLOW.md) for coordination. Active assignments: [surface recovery](docs/workstreams/surface-recovery.md), [navigation live](docs/workstreams/navigation-live.md), [resource acquisition](docs/workstreams/resource-acquisition.md). Each owns its next checkpoint. Historical next-task suggestions below are not current assignments.
+
+The three workstreams remain deterministic body/tool work. The [layered architecture and learning loop](docs/PROJECT_CONTEXT.md#intended-layered-control-architecture) describe future direction, not implemented policy/training infrastructure or additional current assignments.
+
+## Recorded milestone evidence (historical counts)
 
 - Milestone 0 — implemented: strict TypeScript/Node project, configuration, JSONL logging, dependencies, tests, documentation, and engineering instructions.
 - Milestone 1 — 26.1 live spawn, state reporting, timed disconnect, visual client confirmation, and death disconnect succeeded (user/Work reported). Interactive Ctrl+C and server-loss acceptance remain unrecorded.
@@ -11,15 +19,19 @@
 - Milestone 2 recovery — `step_up` now recovers from an aligned one-block hole with headroom/braking-buffer guards, one jump, cancellation and stable landing verification. `pnpm check` passes 47 tests. HitCheck recovered live on its first attempt; reconnect confirmed landing and health 20. Visual jump animation and broader terrain remain unvalidated. No general pathfinding or autonomous pickup added.
 - Milestone 2 descent — guarded `step_down` implemented and confirmed live/reconnect. Adjacent one-level `approach` targets now dispatch to step-up/down; both directions passed live. Final `pnpm check`: 57 tests. A bounded dig/descent/inventory sequence acquired one dirt (pickup occurred before descent). No multi-segment routes, general pathfinding or resource strategy.
 
-## Later milestones (not implemented)
+## Remaining progression (not authorization to begin)
 
-2. Remaining deterministic physical tools: validate the first slice live, address confirmed knockback compatibility, then navigation/pathfinding, visible nearby blocks, mining, placement, inventory, equip, eat. Test without AI.
+2. Finish deterministic-tool validation and integration: existing planner/executor, exact movement and water recovery still have live gaps. Visible inspection, guarded digging and inventory already exist; remaining tool/progression work must be separately scoped. Preserve completed knockback findings; test without AI.
 3. Resource routines: one oak log → crafting table → wooden pickaxe → stone pickaxe.
-4. Constrained AI goals using observations and tools; durable state, usage ledger, warning/hard spending gate, pause/resume, configurable routine/recovery models. Recheck official OpenAI docs before coding.
+4. Future layered control: task coordination connects infrequent strategic LLM/API goals to a fast local tactical policy selecting bounded body/tools. Local tactical implementation (possibly a neural network), representations, training and rewards remain undecided. Build structured experience/evaluation evidence before selecting training designs; compare policies before deployment. Strategic API latency/outages must not block immediate safety. Preserve durable state, usage accounting and persistent spending gates; recheck official guidance before API integration. This is architecture direction, not authorization to train or integrate models.
 5. Early Survival benchmark: food, crafting table, furnace, stone tools, iron, iron pickaxe, shield, bucket.
 6. Nether: portals, dimension-aware travel, hazard survival, fortress search, blaze rods.
 7. End preparation: pearls, Eyes of Ender, legitimate stronghold search, readiness checks.
 8. End: crystals, dragon combat, emergency recovery, death detection, verified legitimate victory.
+
+## Dated development history
+
+These entries retain results and decisions at their checkpoint; later entries supersede earlier capability limits and test counts. Current assignments live in the workstream documents.
 
 Same-height flat stopping task complete: stable braking and final support checks passed 61 tests and one live approach plus reconnect. See docs/validation.md for limitations. A bounded pathfinding evaluation can be considered only on request; no pathfinding, resource strategy or AI autonomy was added.
 

@@ -11,3 +11,15 @@ Build a watchable Minecraft Java Survival agent that eventually defeats the Ende
 - Keep secrets in environment variables. Never commit .env, auth caches, logs, or world data. Never log full environment, bot objects, raw packets, credentials, or arbitrary server messages.
 - Use pnpm and commit its lockfile. Run pnpm check after behavioral changes. Test lifecycle/failure behavior with fakes and record real-server validation separately; mocks cannot prove protocol compatibility.
 - Keep documentation beginner-friendly. Add abstractions when needed, not placeholder implementations for distant milestones.
+
+- Architecture direction: strategic LLM/API → task coordination → fast local tactical policy → deterministic body/tools. Current streams build only bounded body capabilities suitable for future tactical selection; no speculative APIs, neural training or model integration. Immediate safety must not depend on external API latency. See `docs/PROJECT_CONTEXT.md` for the future structured experience/evaluation loop and undecided policy design.
+
+## Collaboration
+
+- Read `docs/RESUME.md` first, then this file and the assigned `docs/workstreams/` document before substantial work. Repository code/tests/docs override old conversations; reviewed team GitHub main is the shared baseline; local uncommitted changes remain proposals until reviewed and merged. See `docs/TEAM_WORKFLOW.md` for workflow and location status.
+- Stay within the assigned major objective. A developer's local ChatGPT/Codex workflow may issue multiple sequential bounded tasks without central approval after each one; stop at each task boundary and hand off before the next task is assigned.
+- Preserve other workstreams' ownership and shared contracts. Do not duplicate a missing subsystem; consume its existing interface or an agreed fake/test seam. Document and escalate cross-workstream architecture or significant interface changes before implementation.
+- Unknown information stays unknown. Preserve legitimate observation boundaries and never weaken physical safety to make a demo pass.
+- Keep changes and commits logically scoped. Validate appropriately (`pnpm check` after behavioral changes); distinguish offline/physics/live/visual evidence. Update the workstream handoff and relevant contract documentation; update RESUME/ROADMAP when project state changes.
+- Never commit secrets, `.env`, auth caches, installed dependencies, generated builds, logs, temporary/output artifacts, portable runtimes, or Minecraft server/world data. Commit dependency manifests/lockfiles and the sanitized `.env.example` as appropriate. Review staged paths; ignore rules alone are not sufficient.
+- Escalate before major architecture or shared-interface changes, Minecraft/Mineflayer/version changes, major dependency additions/replacements, information-boundary changes, AI/model/API integration, credentials/spending, destructive Git operations, taking another stream's ownership, or an objective that appears incorrect/obsolete. Record the blocker/proposal; continue only independent in-scope work until resolved.
