@@ -18,15 +18,15 @@ The **bot terminal** is the separate window opened by **Start Movement Demo.cmd*
 
 ## Build and start
 
-Use PowerShell in this project's directory after installing Node 24 and pnpm as described in the README:
+Use PowerShell in this project's directory. On this computer the portable runtime is already present. If pnpm is not on PATH, these session-local paths use the same Codex runtime used for checks:
 
 ```powershell
-cd 'path\to\Minecraft-Bot-1.0'
-pnpm.cmd install --frozen-lockfile
+cd 'C:\Users\ejdth\OneDrive - Yale University\ChatGPT Beats Minecraft'
+$env:PATH = "$PWD\.tools\node24;C:\Users\ejdth\.cache\codex-runtimes\codex-primary-runtime\dependencies\bin\fallback;" + $env:PATH
 pnpm.cmd check
 ```
 
-On macOS, run `pnpm install --frozen-lockfile` and `pnpm check` in a terminal instead. The `.cmd` launchers are Windows-specific; use the README's `pnpm` commands on macOS.
+If those Codex paths have moved, use the README's Node 24/pnpm installation instead. No dependency installation or version change is required for this slice.
 
 1. Stop any previous bot using its terminal's Ctrl+C. Never run two bots with the same name.
 2. If the server is not already running, double-click **Start Server.cmd** and wait for `Done`. It uses Java 25 and `server-26.1`. Do not start a second server on the same port.

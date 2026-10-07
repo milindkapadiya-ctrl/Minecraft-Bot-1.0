@@ -2,7 +2,15 @@
 
 This repository contains source code and configuration templates. It does not include a server jar, world, local runtimes, dependencies, logs, or credentials. The supplied Windows `.cmd` launchers expect separately installed portable runtimes and a local server, so use the terminal instructions below for a fresh clone.
 
-A small TypeScript/Mineflayer foundation for a future autonomous Ender Dragon run. **Milestones 0–1 plus the first slice of Milestone 2:** connection/state reporting and validated short look/movement actions. No pathfinding, resource acquisition, or AI calls yet. Normal startup remains idle.
+For assisted movement testing, **Start Test Server.cmd** launches the existing 26.1 world and requests Peaceful difficulty and paused daytime after startup. Stop any existing server first by typing `stop` in its server window. Codex can instead run `node scripts/test-server.mjs` in a managed terminal, then launch/control the bot for you. You only need to use Minecraft to watch and report what you see. The launcher does not grant the bot command privileges; these are test-server administration settings. Confirmations appear in server output. The original **Start Server.cmd** remains available.
+
+For the original development folder (portable runtimes and worlds are not included in this clone): double-click `Start Server.cmd`, wait for **Done**, then double-click `Start Bot.cmd`. Use Minecraft Java **26.1** and join `127.0.0.1:25565`. Portable Node 24 and Java 25 are already in `.tools`. The old 1.21.1 world remains in `server`; the new world is in `server-26.1`.
+
+A small TypeScript/Mineflayer foundation for a future autonomous, legitimate Ender Dragon run. **Milestones 0–1 plus the first slice of Milestone 2:** connection/state reporting and validated short look/movement actions. No pathfinding, resource acquisition, or AI calls yet. Normal startup remains idle.
+
+For Work's exact movement and knockback validation commands, see [movement-validation.md](docs/movement-validation.md). Build with `pnpm.cmd check`, then run `pnpm.cmd demo` or **Start Movement Demo.cmd**. The console waits for commands and caps the session at ten minutes. Read the ground-clearance and cancellation steps before moving. The [knockback investigation](docs/knockback-investigation.md) distinguishes the confirmed dependency scaling mismatch from the still-unverified cause of the user's live hit.
+
+If it disconnects with `death` immediately on joining after being killed, run **Respawn Bot Once.cmd**, wait for it to spawn and disconnect, then start the demo again. This requests one ordinary respawn; normal gameplay still stops on death.
 
 ## Quick start on macOS
 
@@ -31,10 +39,6 @@ This bot currently connects only to a **Minecraft Java 26.1 server on the same M
 4. In a second terminal at the repository root, run `pnpm build` and `pnpm start`. Join `127.0.0.1:25565` from Minecraft Java 26.1 to see the bot. Use `pnpm demo` for the bounded movement console. Stop the bot with Ctrl+C and save the server by typing `stop` in its terminal.
 
 The launcher starts the game client; it does not run this Node.js bot or the dedicated server. Keep `server-26.1`, `.env`, and `logs` private.
-
-For Work's exact movement and knockback validation commands, see [movement-validation.md](docs/movement-validation.md). Build with `pnpm.cmd check`, then run `pnpm.cmd demo` or **Start Movement Demo.cmd**. The console waits for commands and caps the session at ten minutes. Read the ground-clearance and cancellation steps before moving. The [knockback investigation](docs/knockback-investigation.md) distinguishes the confirmed dependency scaling mismatch from the still-unverified cause of the user's live hit.
-
-If it disconnects with `death` immediately on joining after being killed, run **Respawn Bot Once.cmd**, wait for it to spawn and disconnect, then start the demo again. This requests one ordinary respawn; normal gameplay still stops on death.
 
 ## Install prerequisites (Windows)
 
@@ -139,4 +143,4 @@ Before marking Milestone 1 fully validated:
 | `Startup failed`                    | Compare `.env` with the example; check integer ranges and log-directory write access.                                           |
 | Server fails to start               | Confirm Java 25, enough RAM, EULA acceptance, and the correct server jar.                                                       |
 
-Architecture and future spending controls: [docs/architecture.md](docs/architecture.md). Progress and next milestone: [ROADMAP.md](ROADMAP.md).
+Architecture, current OpenAI research, and future spending controls: [docs/architecture.md](docs/architecture.md). Progress and next milestone: [ROADMAP.md](ROADMAP.md). Durable engineering rules: [AGENTS.md](AGENTS.md).

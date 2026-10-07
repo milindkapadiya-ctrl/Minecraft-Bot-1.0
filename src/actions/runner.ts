@@ -1,9 +1,27 @@
+import { prepareWalk, WalkMotion } from "./walk-to.js";
 import type { Bot } from "mineflayer";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import type { Log } from "../telemetry/logger.js";
+import { prepareFlat, FlatApproachMotion } from "./flat-approach.js";
+import { prepareStepUp, StepUpMotion } from "./step-up.js";
+import { prepareStepDown, StepDownMotion } from "./step-down.js";
+import {
+  inspect,
+  inventory,
+  targetBlock,
+  safeDig,
+  eyeHeight,
+  type Target,
+} from "./local.js";
 
 export type Action =
+  | { type: "inspect" | "inventory"; timeoutMs: number }
+  | {
+      type: "approach" | "dig" | "step_up" | "step_down" | "walk_to";
+      target: Target;
+      timeoutMs: number;
+    }
   | { type: "look"; yaw: number; pitch: number; timeoutMs: number }
   | {
       type: "move";
@@ -32,6 +50,7 @@ export interface ActionResult {
   physicsTicks: number;
   before: ReturnType<typeof motionSnapshot> | null;
   after: ReturnType<typeof motionSnapshot> | null;
+  details?: Record<string, unknown>;
 }
 
 export function motionSnapshot(bot: Bot) {
@@ -80,7 +99,7 @@ export function validateAction(value: unknown): Action | null {
     number(a.pitch) &&
     Math.abs(a.pitch) <= Math.PI / 2
   )
-    return a as Action;
+    return { ...a } as Action;
   if (
     a.type === "move" &&
     Object.keys(a).every((k) =>
@@ -93,7 +112,36 @@ export function validateAction(value: unknown): Action | null {
     a.durationMs >= 100 &&
     a.durationMs <= 2000
   )
-    return a as Action;
+    return { ...a } as Action;
+  if (
+    (a.type === "inspect" || a.type === "inventory") &&
+    Object.keys(a).every((k) => ["type", "timeoutMs"].includes(k))
+  )
+    return { ...a } as Action;
+  if (
+    (a.type === "walk_to" ||
+      a.type === "approach" ||
+      a.type === "dig" ||
+      a.type === "step_up" ||
+      a.type === "step_down") &&
+    Object.keys(a).every((k) => ["type", "target", "timeoutMs"].includes(k))
+  ) {
+    const t = a.target as Record<string, unknown> | undefined;
+    if (
+      t &&
+      typeof t === "object" &&
+      !Array.isArray(t) &&
+      Object.keys(t).length === 4 &&
+      ["x", "y", "z", "stateId"].every(
+        (k) => number(t[k]) && Number.isSafeInteger(t[k]),
+      ) &&
+      (t.stateId as number) >= 0 &&
+      Math.abs(t.x as number) <= 30000000 &&
+      Math.abs(t.z as number) <= 30000000 &&
+      Math.abs(t.y as number) <= 4096
+    )
+      return { ...a, target: { ...t } } as Action;
+  }
   return null;
 }
 
@@ -121,6 +169,7 @@ export class ActionRunner {
     const action = validateAction(input);
     const before = motionSnapshot(this.bot);
     let ticks = 0;
+    const details: Record<string, unknown> = {};
     const result = (code: Code): ActionResult => ({
       id,
       action: action?.type ?? "invalid",
@@ -130,6 +179,7 @@ export class ActionRunner {
       physicsTicks: ticks,
       before,
       after: motionSnapshot(this.bot),
+      details,
     });
     const reject = (code: Code) => {
       const r = result(code);
@@ -168,9 +218,54 @@ export class ActionRunner {
       let timer: NodeJS.Timeout | undefined;
       let interval: NodeJS.Timeout | undefined;
       let lastTick = performance.now();
+      let digStarted = false;
+      let digDone = false;
+      let confirmedAt: number | undefined;
+      let target: ReturnType<typeof targetBlock> = null;
+      let step:
+        | StepUpMotion
+        | StepDownMotion
+        | FlatApproachMotion
+        | WalkMotion
+        | undefined;
+      const serverBlock = (packet: {
+        location?: { x: number; y: number; z: number };
+        type?: number;
+      }) => {
+        if (action.type !== "dig" || !digStarted || !packet.location) return;
+        const t = action.target;
+        if (
+          packet.location.x === t.x &&
+          packet.location.y === t.y &&
+          packet.location.z === t.z
+        ) {
+          // This event comes from the server, unlike Mineflayer's optimistic
+          // local blockUpdate emitted when its digging timer finishes.
+          details.serverConfirmedAir = packet.type === 0;
+          confirmedAt = packet.type === 0 ? performance.now() : undefined;
+        }
+      };
+      const serverBlocks = (packet: {
+        chunkCoordinates: { x: number; y: number; z: number };
+        records: number[];
+      }) => {
+        // 26.1 section-local packed records, as decoded by the pinned protocol.
+        const c = packet.chunkCoordinates;
+        for (const r of packet.records)
+          serverBlock({
+            location: {
+              x: c.x * 16 + ((r >> 8) & 15),
+              y: c.y * 16 + (r & 15),
+              z: c.z * 16 + ((r >> 4) & 15),
+            },
+            type: Math.floor(r / 4096),
+          });
+      };
       const finish = (code: Code) => {
         if (ended) return;
         ended = true;
+        if (code === "ok" && performance.now() - started >= action.timeoutMs)
+          code = "timeout";
         clearTimeout(timer);
         clearInterval(interval);
         signal?.removeEventListener("abort", abort);
@@ -181,8 +276,19 @@ export class ActionRunner {
         this.bot.off("entityHurt", hurt);
         this.bot.off("health", health);
         this.bot.off("game", game);
+        if (action.type === "dig") {
+          this.bot._client.off("block_change", serverBlock);
+          this.bot._client.off("multi_block_change", serverBlocks);
+        }
+        try {
+          if (digStarted) this.bot.stopDigging();
+        } catch {
+          code = "execution_error";
+        }
         try {
           this.bot.clearControlStates();
+          if (action.type === "dig")
+            details.inventoryAfter = inventory(this.bot);
         } catch {
           code = "execution_error";
         }
@@ -206,6 +312,7 @@ export class ActionRunner {
       const tick = () => {
         ticks++;
         lastTick = performance.now();
+        safeCheck();
       };
       const check = () => {
         if (!healthy()) {
@@ -218,6 +325,18 @@ export class ActionRunner {
           return;
         }
         if (action.type === "look" && lookApplied && ticks > 0) finish("ok");
+        if (lookApplied && step) {
+          const outcome = step.check(performance.now(), ticks);
+          if (outcome) finish(outcome);
+          return;
+        }
+        if (
+          action.type === "dig" &&
+          digDone &&
+          confirmedAt !== undefined &&
+          performance.now() - confirmedAt >= 500
+        )
+          finish("ok");
         if (action.type === "move" && elapsed >= action.durationMs) {
           const p = this.bot.entity.position;
           const b = before!.position;
@@ -230,6 +349,13 @@ export class ActionRunner {
           );
         }
       };
+      const safeCheck = () => {
+        try {
+          check();
+        } catch {
+          finish("execution_error");
+        }
+      };
       this.active = finish;
       signal?.addEventListener("abort", abort, { once: true });
       this.bot.on("physicsTick", tick);
@@ -239,14 +365,158 @@ export class ActionRunner {
       this.bot.on("entityHurt", hurt);
       this.bot.on("health", health);
       this.bot.on("game", game);
+      if (action.type === "dig") {
+        this.bot._client.on("block_change", serverBlock);
+        this.bot._client.on("multi_block_change", serverBlocks);
+      }
       timer = setTimeout(() => finish("timeout"), action.timeoutMs);
-      interval = setInterval(check, 25);
+      interval = setInterval(safeCheck, 25);
       this.log("action_started", { id, request: action, before });
       try {
         this.bot.clearControlStates();
-        if (action.type === "move")
+        if (action.type === "inspect" || action.type === "inventory") {
+          details[action.type === "inspect" ? "blocks" : "inventory"] =
+            action.type === "inspect" ? inspect(this.bot) : inventory(this.bot);
+          finish("ok");
+        } else if (action.type === "walk_to") {
+          const plan = prepareWalk(this.bot, action.target, details);
+          if (!plan) {
+            finish("not_ready");
+            return;
+          }
+          void this.bot
+            .look(Math.atan2(-plan.dx, -plan.dz), -0.65, true)
+            .then(() => {
+              if (ended) return;
+              const fresh = prepareWalk(this.bot, action.target, details);
+              if (!fresh) {
+                finish("not_ready");
+                return;
+              }
+              step = new WalkMotion(this.bot, fresh, details);
+              step.start(performance.now());
+              lookApplied = true;
+            })
+            .catch(() => finish("execution_error"));
+        } else if (
+          action.type === "step_down" ||
+          (action.type === "approach" &&
+            action.target.y === Math.floor(this.bot.entity.position.y) - 2)
+        ) {
+          details.strategy = "step_down";
+          const plan = prepareStepDown(this.bot, action.target, details);
+          if (!plan) {
+            finish("not_ready");
+            return;
+          }
+          void this.bot
+            .look(plan.yaw, -1.0, true)
+            .then(() => {
+              if (ended) return;
+              const refreshed = prepareStepDown(
+                this.bot,
+                action.target,
+                details,
+              );
+              if (!refreshed) {
+                finish("not_ready");
+                return;
+              }
+              step = new StepDownMotion(this.bot, refreshed, details);
+              step.start(performance.now());
+              lookApplied = true;
+            })
+            .catch(() => finish("execution_error"));
+        } else if (
+          action.type === "step_up" ||
+          (action.type === "approach" &&
+            action.target.y === Math.floor(this.bot.entity.position.y))
+        ) {
+          details.strategy = "step_up";
+          const plan = prepareStepUp(this.bot, action.target, details);
+          if (!plan) {
+            finish("not_ready");
+            return;
+          }
+          void this.bot
+            .look(plan.yaw, -0.4, true)
+            .then(() => {
+              if (ended) return;
+              const refreshed = prepareStepUp(this.bot, action.target, details);
+              if (!refreshed) {
+                finish("not_ready");
+                return;
+              }
+              step = new StepUpMotion(this.bot, refreshed, details);
+              step.start(performance.now());
+              lookApplied = true;
+            })
+            .catch(() => finish("execution_error"));
+        } else if (action.type === "approach" || action.type === "dig") {
+          target = targetBlock(this.bot, action.target);
+          if (!target) {
+            details.reason = "target_not_visible_or_changed";
+            finish("not_ready");
+            return;
+          }
+          if (
+            action.type === "approach"
+              ? !prepareFlat(this.bot, action.target, details)
+              : !safeDig(this.bot, target)
+          ) {
+            details.reason =
+              action.type === "approach"
+                ? "requires_clear_flat_route"
+                : "requires_reachable_surface_dirt_outside_support";
+            finish("not_ready");
+            return;
+          }
+          if (action.type === "dig") {
+            details.inventoryBefore = inventory(this.bot);
+            details.serverConfirmedAir = false;
+          }
+          const delta = target.position
+            .offset(0.5, 1, 0.5)
+            .minus(this.bot.entity.position.offset(0, eyeHeight(this.bot), 0));
+          void this.bot
+            .look(
+              Math.atan2(-delta.x, -delta.z),
+              Math.atan2(delta.y, Math.hypot(delta.x, delta.z)),
+              true,
+            )
+            .then(() => {
+              if (ended) return;
+              lookApplied = true;
+              if (action.type === "approach") {
+                if (!prepareFlat(this.bot, action.target, details)) {
+                  finish("not_ready");
+                  return;
+                }
+                step = new FlatApproachMotion(this.bot, action.target, details);
+                step.start(performance.now());
+              } else {
+                if (
+                  !targetBlock(this.bot, action.target) ||
+                  !safeDig(this.bot, target!)
+                ) {
+                  finish("not_ready");
+                  return;
+                }
+                // 'ignore' has no pre-start await in the pinned Mineflayer dig
+                // implementation. Cancellation cannot race a delayed look task.
+                digStarted = true;
+                void this.bot.dig(target!, "ignore").then(
+                  () => {
+                    digDone = true;
+                  },
+                  () => finish("execution_error"),
+                );
+              }
+            })
+            .catch(() => finish("execution_error"));
+        } else if (action.type === "move")
           this.bot.setControlState(action.direction, true);
-        else {
+        else if (action.type === "look") {
           // force=true applies the orientation immediately, without leaving a
           // smooth-look task that could keep changing orientation after abort.
           void this.bot.look(action.yaw, action.pitch, true).then(

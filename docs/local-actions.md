@@ -1,0 +1,21 @@
+# Nearby block tools (Milestone 2)
+
+Start **Start Test Server.cmd**, wait for `Done`, then start **Start Movement Demo.cmd**. Join Java 26.1 Multiplayer at `localhost:25565` to watch **SurvivalBot**. The bot terminal is the window opened by Start Movement Demo.cmd. It accepts the commands below and disconnects after ten minutes. `cancel` stops the current action; `quit` disconnects. Type `stop` in the server terminal when finished.
+
+After source changes, run `pnpm check` in the project folder before launching (it builds the runnable files).
+
+1. On clear, flat ground, use `look 0 -37` to face north and downward. Other yaw values turn the view; angles are degrees.
+2. Enter `inspect`. Read `details.blocks` in the `action_result`. Entries are indexed from **0**, in the displayed order. Only first-hit surfaces in the current viewing cone, within four blocks, are returned. This is a sparse view, not a complete nearby-block scan.
+3. Choose a visible surface block ahead. Enter `approach 2` to approach entry 2, for example. For same-height targets, this accepts only short, straight, flat routes with visible solid support and clear space. Noncolliding wildflowers are allowed; other plants, obstacles, gaps, slopes, unknown terrain, and liquids cause refusal. Results include the specific failed route check when applicable. A refusal is expected on many natural routes. That flat mode does not jump or route around obstacles; adjacent height changes use the step modes described below.
+4. For a dirt/grass surface outside the bot's own support, enter `dig 2` using the same entry. Targets are rechecked, so stale or hidden targets fail. Digging other materials, underfoot, or on a different level is deliberately unsupported. There is no automatic retry.
+5. Enter `inventory`. Dig results also contain `inventoryBefore`, `inventoryAfter`, and `serverConfirmedAir`. `ok` means the server confirmed air at the target; it **does not promise that a dropped item was collected**. Compare inventory counts. For descent, inspect the exposed lower floor and use guarded `step_down <index>` as described in `step-down.md`, rather than blindly issuing timed movement into the hole.
+
+For an immediately adjacent support target one level higher/lower, `approach` now selects guarded step-up/down automatically. The step lands on the selected support (or its checked lower buffer); same-height approach still stops short of its target. It does not combine flat travel with a distant step, chain multiple height changes, or search routes. Use `details.strategy` to see the selected step and do not try to dig the block now underfoot.
+
+Actions share one runner; overlapping requests fail with `busy`. Inputs have strict schemas, copied target coordinates/state IDs, and deadlines up to five seconds. Movement clears controls on all exits; dig cancellation also stops digging. Damage, death, disconnect, server position correction, or invalid physics interrupts an action. Ordinary coasting after releasing controls is expected.
+
+For callers, the new action shapes are `{type:"inspect",timeoutMs:1000}`, `{type:"inventory",timeoutMs:1000}`, and `{type:"approach"|"dig"|"step_up"|"step_down",target:{x,y,z,stateId},timeoutMs:5000}`. Use targets from observations, never world files or privileged coordinates. All tools are deterministic; no model calls or resource strategy are included.
+
+Validation status: one supervised inspect/approach/dig/pickup sequence passed with visual confirmation. Pickup required three separately checked 100 ms forward movements into a user-confirmed shallow dry hole; this is not an autonomous pickup procedure. The new `step_up <inspect index>` subsequently recovered HitCheck onto land, with technical landing and reconnect confirmation. See `step-up.md` for its restrictions and commands. SurvivalBot remains in the lake after the earlier post-hit test. Both are disconnected and the server is stopped; consult `RESUME.md` before restarting.
+
+The user confirmed knockback and movement after a hit, but the timed movement walked off a platform because the route was not rechecked after knockback. For any repeat, use broad flat ground away from edges and reassess the actual route after the hit. Neither an action's ok result nor this single supervised chain establishes general terrain safety.
