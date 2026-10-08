@@ -59,7 +59,12 @@ function examplesIn(file: string): Example[] {
         };
     }
     if (record.event === "pickaxe_decision_result") {
-      if (pending && record.action === pending.action && record.ok === true)
+      if (
+        pending &&
+        record.action === pending.action &&
+        record.ok === true &&
+        (pending.action !== "collect_drop" || record.pickupConfirmed === true)
+      )
         examples.push(pending);
       pending = undefined;
     }

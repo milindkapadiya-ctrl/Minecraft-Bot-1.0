@@ -172,6 +172,7 @@ export function startPickaxeAgent(
       decision++
     ) {
       memory.visit(scan.percept.position);
+      memory.observeGround(scan.percept.ground);
       const observation = observePickaxe(scan.percept, memory);
       if (observation.inventory.pickaxe > 0) {
         log("pickaxe_goal_reached", {
@@ -204,6 +205,7 @@ export function startPickaxeAgent(
           action: chosen.action,
         });
       const before = Date.now();
+      const logsBefore = scan.percept.inventory.logs;
       const predicted = model.score(chosen.features);
       const ok = await executePickaxeCandidate(
         bot,
@@ -214,7 +216,6 @@ export function startPickaxeAgent(
         controller.signal,
       );
       if (controller.signal.aborted) return;
-      memory.result(chosen, ok);
       const next = await scanPickaxe(
         bot,
         runner,
@@ -226,6 +227,10 @@ export function startPickaxeAgent(
         if (!controller.signal.aborted) stop("pickaxe_scan_failed", 1);
         return;
       }
+      const pickupConfirmed =
+        chosen.action === "collect_drop" &&
+        next.percept.inventory.logs > logsBefore;
+      memory.result(chosen, ok, pickupConfirmed);
       const earned =
         progress.observe(next.percept.inventory) -
         (ok ? 0.01 : 0.15) -
@@ -251,6 +256,8 @@ export function startPickaxeAgent(
         action: chosen.action,
         target: chosen.target,
         ok,
+        pickupConfirmed:
+          chosen.action === "collect_drop" ? pickupConfirmed : null,
         reward: earned,
         predicted,
         modelSteps: model.steps,

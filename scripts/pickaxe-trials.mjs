@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   appendFileSync,
   copyFileSync,
@@ -75,6 +75,10 @@ if (!existsSync(resolve(project, "dist/src/main.js")))
   throw new Error("Build the bot first with pnpm build");
 if (mode !== "teacher" && !existsSync(modelFile))
   throw new Error("Neural trials need a trained model checkpoint");
+const modelSha256 =
+  mode === "teacher"
+    ? null
+    : createHash("sha256").update(readFileSync(modelFile)).digest("hex");
 
 let interrupted = false;
 let activeBot;
@@ -233,25 +237,35 @@ function summarize(directory, seed, exitCode) {
     : [];
   const ready = events.find((event) => event.event === "pickaxe_agent_ready");
   const goal = events.find((event) => event.event === "pickaxe_goal_reached");
+  const spawn = events.find(
+    (event) => event.event === "player_state" && event.observation?.position,
+  )?.observation?.position;
+  const decisions = events.filter(
+    (event) => event.event === "pickaxe_decision_result",
+  );
   const last = events.at(-1);
   return {
     mode,
     seed,
+    spawn: spawn ?? null,
+    modelSha256,
     exitCode,
     success: Boolean(goal),
     visibleLogsAtSpawn: ready?.visibleLogsAtSpawn ?? null,
     ownFloorAtSpawn: ready?.scan?.ownFloor ?? null,
+    routeCandidatesAtSpawn: ready?.scan?.routeCandidates ?? null,
     secondsToGoal:
       ready && goal
         ? (Date.parse(goal.timestamp) - Date.parse(ready.timestamp)) / 1000
         : null,
-    explorationDecisions: events.filter(
-      (event) =>
-        event.event === "pickaxe_decision_result" && event.action === "explore",
+    explorationDecisions: decisions.filter(
+      (event) => event.action === "explore",
     ).length,
-    decisions: events.filter(
-      (event) => event.event === "pickaxe_decision_result",
+    confirmedPickups: decisions.filter(
+      (event) => event.action === "collect_drop" && event.pickupConfirmed,
     ).length,
+    decisions: decisions.length,
+    finalInventory: decisions.at(-1)?.inventory ?? null,
     stopReason: last?.reason ?? null,
     logFile: file ? join(logDir, file) : null,
   };

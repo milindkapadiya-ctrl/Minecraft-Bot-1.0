@@ -38,6 +38,7 @@ export interface PolicyCandidate {
   key: string;
   features: number[];
   target?: Target;
+  dropKey?: string;
 }
 export interface PolicyObservation {
   candidates: PolicyCandidate[];
@@ -57,7 +58,25 @@ export class PickaxeMemory {
   readonly visits = new Map<string, number>();
   readonly failures = new Map<string, number>();
   readonly attempts = new Map<string, number>();
+  readonly knownGround = new Set<string>();
+  readonly missedDrops = new Map<string, number>();
   private lastCell = "";
+
+  observeGround(ground: readonly Target[]) {
+    for (const target of ground) this.knownGround.add(key(target));
+  }
+
+  familiarity(target: Target) {
+    const visits =
+      this.visits.get(`${target.x},${target.y + 1},${target.z}`) ?? 0;
+    const knownNeighbors = [
+      `${target.x + 1},${target.y},${target.z}`,
+      `${target.x - 1},${target.y},${target.z}`,
+      `${target.x},${target.y},${target.z + 1}`,
+      `${target.x},${target.y},${target.z - 1}`,
+    ].filter((neighbor) => this.knownGround.has(neighbor)).length;
+    return clamp((visits + knownNeighbors / 4) / 3);
+  }
 
   visit(position: Point) {
     const cell = `${Math.floor(position.x)},${Math.floor(position.y)},${Math.floor(position.z)}`;
@@ -66,7 +85,16 @@ export class PickaxeMemory {
     this.visits.set(cell, (this.visits.get(cell) ?? 0) + 1);
   }
 
-  result(candidate: PolicyCandidate, ok: boolean) {
+  result(candidate: PolicyCandidate, ok: boolean, pickupConfirmed = false) {
+    if (candidate.action === "collect_drop" && candidate.dropKey) {
+      if (pickupConfirmed) this.missedDrops.delete(candidate.dropKey);
+      else
+        this.missedDrops.set(
+          candidate.dropKey,
+          (this.missedDrops.get(candidate.dropKey) ?? 0) + 1,
+        );
+    }
+    if (candidate.action === "chop_log" && ok) this.missedDrops.clear();
     if (candidate.target)
       this.attempts.set(
         candidate.key,
@@ -104,16 +132,19 @@ export function observePickaxe(
     clamp(failures / 8),
   ];
   const candidates: PolicyCandidate[] = [];
-  const add = (action: PickaxeAction, id: string, target?: Target) => {
+  const add = (
+    action: PickaxeAction,
+    id: string,
+    target?: Target,
+    dropKey?: string,
+  ) => {
     const candidateKey = `${action}:${id}`;
     const attempts = memory.failures.get(candidateKey) ?? 0;
     const tries = memory.attempts.get(candidateKey) ?? 0;
     if (attempts >= 2 || (target && tries >= 3)) return;
+    if (dropKey && (memory.missedDrops.get(dropKey) ?? 0) >= 6) return;
     const targetPoint = target ?? position;
-    const visits =
-      memory.visits.get(
-        `${targetPoint.x},${targetPoint.y + 1},${targetPoint.z}`,
-      ) ?? 0;
+    const familiarity = target ? memory.familiarity(target) : 0;
     const nearestLog = Math.min(
       8,
       ...percept.logs.map((log) => horizontal(log, targetPoint)),
@@ -127,7 +158,7 @@ export function observePickaxe(
       clamp((targetPoint.z + 0.5 - position.z) / 4),
       clamp(distance(position, targetPoint) / 5),
       clamp((targetPoint.y - position.y) / 2),
-      clamp(visits / 3),
+      familiarity,
       clamp((attempts + tries) / 3),
       clamp(horizontal(targetPoint, origin) / 48),
       clamp(nearestLog / 8),
@@ -141,6 +172,7 @@ export function observePickaxe(
       key: candidateKey,
       features: policyFeatures(state, action, targetFeatures),
       ...(target ? { target } : {}),
+      ...(dropKey ? { dropKey } : {}),
     });
   };
 
@@ -172,13 +204,21 @@ export function observePickaxe(
       )
     )
       add("approach_log", key(ground), ground);
-    if (
-      percept.drops.some(
-        (drop) =>
-          horizontal(groundCenter, drop) + 0.25 < horizontal(position, drop),
+    const drop = percept.drops
+      .filter(
+        (item) =>
+          horizontal(groundCenter, item) + 0.25 < horizontal(position, item),
       )
-    )
-      add("collect_drop", key(ground), ground);
+      .sort(
+        (a, b) => horizontal(groundCenter, a) - horizontal(groundCenter, b),
+      )[0];
+    if (drop)
+      add(
+        "collect_drop",
+        key(ground),
+        ground,
+        `${Math.floor(drop.x)},${Math.floor(drop.y)},${Math.floor(drop.z)}`,
+      );
   }
   // The scan preflights reach and diggability; the runner checks them again.
   for (const log of percept.choppableLogs) add("chop_log", key(log), log);

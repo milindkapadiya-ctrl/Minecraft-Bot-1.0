@@ -63,6 +63,28 @@ test("successful movement still records attempted frontiers to prevent loops", (
   assert.equal(observePickaxe(state, memory).candidates.length, 0);
 });
 
+test("exploration features prefer the edge of legitimately observed ground", () => {
+  const state = spawn();
+  state.ground = [
+    { x: 0, y: 63, z: -2, stateId: 9 },
+    { x: 2, y: 63, z: 0, stateId: 9 },
+  ];
+  const memory = new PickaxeMemory();
+  memory.observeGround([
+    ...state.ground,
+    { x: 1, y: 63, z: 0, stateId: 9 },
+    { x: 3, y: 63, z: 0, stateId: 9 },
+  ]);
+  const candidates = observePickaxe(state, memory).candidates;
+  const center = candidates.find(({ target }) => target?.x === 2)!;
+  const frontier = candidates.find(({ target }) => target?.z === -2)!;
+  const familiarityFeature = 14 + 9 + 4;
+  assert.ok(
+    (center.features[familiarityFeature] ?? 0) >
+      (frontier.features[familiarityFeature] ?? 0),
+  );
+});
+
 test("a visible drop offers safe ground that moves closer to it", () => {
   const state = spawn();
   state.ground = [{ x: 1, y: 63, z: 0, stateId: 9 }];
@@ -81,6 +103,30 @@ test("a visible drop offers safe ground that moves closer to it", () => {
     ),
     false,
   );
+});
+
+test("repeated uncollected moves suppress one drop until new wood is chopped", () => {
+  const state = spawn();
+  state.ground = [{ x: 1, y: 63, z: 0, stateId: 9 }];
+  state.drops = [{ x: 2.5, y: 64, z: 0.5 }];
+  const memory = new PickaxeMemory();
+  const pickup = observePickaxe(state, memory).candidates.find(
+    ({ action }) => action === "collect_drop",
+  )!;
+  assert.ok(pickup.dropKey);
+  for (let i = 0; i < 6; i++) memory.result(pickup, true, false);
+  assert.equal(memory.missedDrops.get(pickup.dropKey!), 6);
+  assert.equal(
+    observePickaxe(state, memory).candidates.some(
+      ({ action }) => action === "collect_drop",
+    ),
+    false,
+  );
+  memory.result(
+    { action: "chop_log", key: "chop_log:new", features: [] },
+    true,
+  );
+  assert.equal(memory.missedDrops.size, 0);
 });
 
 test("visible log and recipe stages expose only feasible choices", () => {
@@ -249,6 +295,52 @@ test("offline training excludes teacher actions the server marked unsuccessful",
         event: "pickaxe_decision_result",
         action: candidate.action,
         ok: true,
+      }),
+    ].join("\n"),
+  );
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(process.cwd(), "dist/src/train-pickaxe.js"),
+      directory,
+      join(directory, "model.json"),
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).trainingExamples, 1);
+});
+
+test("offline training requires inventory confirmation for drop collection", () => {
+  const directory = mkdtempSync(join(tmpdir(), "pickaxe-pickup-"));
+  const state = spawn();
+  state.ground = [{ x: 1, y: 63, z: 0, stateId: 9 }];
+  state.drops = [{ x: 2.5, y: 64, z: 0.5 }];
+  const choice = observePickaxe(state, new PickaxeMemory()).candidates.find(
+    ({ action }) => action === "collect_drop",
+  )!;
+  const step = JSON.stringify({
+    event: "pickaxe_teacher_step",
+    action: choice.action,
+    chosen: choice.features,
+    negatives: [],
+  });
+  writeFileSync(
+    join(directory, "episode.jsonl"),
+    [
+      step,
+      JSON.stringify({
+        event: "pickaxe_decision_result",
+        action: "collect_drop",
+        ok: true,
+        pickupConfirmed: false,
+      }),
+      step,
+      JSON.stringify({
+        event: "pickaxe_decision_result",
+        action: "collect_drop",
+        ok: true,
+        pickupConfirmed: true,
       }),
     ].join("\n"),
   );
