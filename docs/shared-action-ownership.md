@@ -1,0 +1,46 @@
+# SHARED-01: canonical ActionRunner and prototype isolation
+
+Owner: Will, HQ-approved Option A. Branch `will-shared-actionrunner`, base `origin/main` at `9facc80959a36e8c2a69bdc138809c7b47eaebd2`. This supersedes the earlier blocked proposal. Surface Recovery algorithms remain preserved and paused; no scanner or terrain contract is implemented.
+
+## Canonical acquisition and supported execution
+
+Use `new ActionRunner(bot, log)` as before. Repeated acquisition for the same Bot returns the same controller, including after closure; the first logger wins. Each new connection has its own Bot/controller. `startSession` creates the controller and closes it before ready-resource disposal on stop or disconnect. Retained references reject actions after closure. Do not create facade/proxy Bot identities as alternative action entry points.
+
+`run(action, signal?)` retains its existing schemas, deadlines and movement tolerances. Accepted actions share one ownership slot; overlap returns `busy`, without queuing. Internal control scopes in `src/actions/control-ownership.ts` are runner/session implementation details, not a consumer acquisition API. Prototype control-producing Mineflayer methods are protected before the ready callback, after plugin injection. Unowned look/movement/dig calls and cleanup refuse without changing inputs. `controlState` setters in the pinned physics plugin delegate to guarded `setControlState`. The dynamic `stopDigging` implementation can change only within its current owner; its public method stays guarded.
+
+## Future scanner integration
+
+Ethan should call `runner.runExclusive(timeoutMs, async scope => { ... }, signal)` once for the entire bounded scan. Await `scope.look(yaw, pitch)`; obtain legitimate observations through `scope.observe(() => existingObserver(bot))`; after an asynchronous observation wait, call `scope.checkpoint()` before consuming it or continuing. All views belong to the same ownership interval. Nested `run` or another composite returns `busy`. Context exposes no movement or raw Bot capability. Observation acquisition, view selection, provenance and freshness remain Ethan's responsibilities.
+
+Composite deadlines use the existing100–5000ms action range. Start requires grounded, living Survival, finite enabled physics and horizontal speed below0.01. Drift beyond0.02 blocks, loss of grounding, horizontal motion, harm, forced relocation or disconnect interrupts. These are stationary-operation guards, not changes to walk arrival tolerances. Context look validates existing angle bounds, forces immediate orientation and guards both sides of the await. Calls after completion/cancellation throw; observers must be trusted compiled read-only functions. No CLI/model-supplied executable callback is accepted. This capability does not implement scanning.
+
+## Cancellation, cleanup and shutdown
+
+Prefer the operation's AbortSignal or `cancel(actionId)` for component cancellation. A stale ID or aborted old signal cannot cancel newer work. `cancel()` without an ID remains explicit operator-wide emergency cancellation; `close()` is session-wide shutdown, not component disposal. The demo now aborts only its own sequence; session shutdown owns controller closure.
+
+Every action has an ID and a revocable control scope. Deadline/interruption/success/failure clear applicable controls and listeners/timers before releasing ownership. Old async continuations retain an expired scope and cannot activate or clear a newer owner's inputs. Dependency promises are not the sole deadline. Force-look behavior is source-verified for pinned Mineflayer4.39.0: orientation applies synchronously, avoiding a smooth-look job. Arbitrary trusted callback computation cannot be forcibly interrupted by JavaScript timers; capabilities are revoked even if its promise never settles.
+
+Session stop closes admission before consumer disposal; disposer failure still proceeds to disconnect. Unexpected end closes the same controller. Repeated close/stop is safe and separate bots remain independent. Shutdown releases normal controls without zeroing velocity or suppressing knockback. Existing isolated server-velocity correction is unchanged.
+
+## Connection and legacy isolation boundary
+
+Every supported real `startSession` launch reserves an atomic directory under `~/.cache/minecraft-body-session-leases/` before creating a connection. The key hashes local server port and conservatively case-normalized bot identity; all supported hosts are loopback aliases. Reservations are shared by prototype and legacy modes across worktrees/processes of the same local OS user. A conflicting launch refuses before factory invocation, so a legacy connection cannot take over that reserved player through supported launch paths. Different identities remain independent bots, not shared action owners.
+
+Release follows actual client `end` (or factory failure before a Bot exists). If disconnect cannot be confirmed, or a process crashes, its reservation remains fail-closed. There is no automatic stale-lock theft. After personally confirming that no process/client retains that identity, an operator may remove only its corresponding abandoned reservation directory; never delete active reservations or clear the entire lease directory. The exact hashed path can be derived from port and lowercase username using the function in `src/minecraft/connection-lease.ts`.
+
+`startSession(..., false, "legacy-surface")` is an explicit standalone mode. It permits existing legacy controls for that isolated connection, rejects ActionRunner acquisition, clears inputs and revokes control access at shutdown. `scripts/surface-once.mjs` selects this mode. EmergencySurface, SurfaceHold and GuardedSwimmingAdapter source is untouched. On prototype Bots their independent calls are refused by the guard, including attempts to clear an active movement owner's controls. These classes are excluded from prototype composition; they are not registered scan/action implementations.
+
+This is enforced cooperative safety for updated repository launch paths, not global exclusivity or a JavaScript security sandbox. External Minecraft clients, other OS users, old builds, independently written raw Mineflayer clients, direct raw packet writes, deliberate entity mutation, hostile monkey-patching and imported internal scope helpers are outside the supported boundary. Rebuild updated launch paths before use; reserve player identity with the operator as usual. Custom Bot factories are trusted offline test seams and do not take a real-server reservation. They must not be used to create production connections. No claim is made that an external client cannot replace an offline-authenticated connection.
+
+## Entry-point audit
+
+- Supported prototype: `src/main.ts` normal/demo/motion-trace; `src/demo.ts`; `scripts/validate-step-up.mjs`; read-only `scripts/observe-air.mjs` and `scripts/observe-water.mjs`. These all use startSession; action producers acquire the canonical runner. Step/dig/walk helpers are internal runner operations, not standalone execution APIs. Startup `--respawn-once` is a separately explicit pre-spawn lifecycle diagnostic; it does not coexist with active actions.
+- Standalone legacy: `scripts/surface-once.mjs` plus unchanged recovery controllers only on an explicitly isolated legacy connection. Ordinary server launcher scripts administer a server and do not own bot movement.
+- Excluded: direct recovery composition on prototype bots, additional raw Bot/proxy controller identities, direct control calls outside action scope, custom production factories and stale builds. No supported unresolved direct-control call was found. Telemetry reads and server-provided velocity decoding are legitimate non-control operations.
+- Navigation proposals on `will-navigation-live`, including NAV-01/NAV-02B/NAV-04A, were neither copied nor edited. On later integration their constructors resolve canonically; component disposers must use their own signal, leaving close to the session.
+
+## Offline validation and remaining checks
+
+13 new tests: canonical identity/separate bots; composite ownership across awaits; stale cancellation/capabilities; timeout/error/drift; delayed look/shutdown; refusal of all three legacy controllers on prototype; standalone mode revocation; dynamic stopDigging; close-before-dispose; disposer failure; late plugin injection; default launch-mode lease exclusion; independent child-process reservation exclusion/release. Existing fake injection was adjusted to set a failure flag rather than replace a protected method. Existing look/walk tests remain passing.
+
+Focused actions/session/local/lease suite:56 executed,56 passing,0 failures/skips. Full main-based suite:196 executed,196 passing,0 failures/skips; TypeScript/build pass. Full pnpm check exits1 only on inherited docs/RESUME.md and docs/TEAM_WORKFLOW.md formatting issues; no unrelated mass-formatting. Local logs `/private/tmp/shared01-focused.txt` and `/private/tmp/shared01-check.txt` are not portable artifacts. No live server connection, movement or recovery validation occurred. Pending manual checks: updated-runtime startup/disconnect and separately approved scanner integration. PR review is required before merge.
