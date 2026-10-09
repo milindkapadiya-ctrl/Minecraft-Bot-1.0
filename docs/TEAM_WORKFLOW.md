@@ -23,13 +23,13 @@ The immediate milestone is the **HackHarvard Minecraft Body Prototype, October 1
 
 ## Shared boundaries
 
-| Area | Coordination responsibility |
-| --- | --- |
-| Legitimate nearby observations, known/unknown terrain, visible targets and perception interface | Ethan leads; Will and Milind consume existing contracts and coordinate changes. |
-| Existing planner, route executor, movement primitives and arrival verification | Will leads; consumes Ethan's observations; Milind uses an agreed navigation seam only when needed. |
-| Nearby interaction/digging, collection verification and inventory/result reporting | Milind leads; nearby-positioned safe fixtures or fakes permit independent tests; no competing navigation or perception. |
-| Emergency/hold/water recovery | Ethan's unfinished work is preserved on published branch `ethan-surface-recovery`; paused outside the immediate critical path. Do not merge, discard, edit or claim live validation of it. |
-| Shared ActionRunner, session lifecycle, versions and project docs | Affected owners coordinate changes before implementation; file location does not grant exclusive redesign authority. |
+| Area                                                                                            | Coordination responsibility                                                                                                                                                                |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Legitimate nearby observations, known/unknown terrain, visible targets and perception interface | Ethan leads; Will and Milind consume existing contracts and coordinate changes.                                                                                                            |
+| Existing planner, route executor, movement primitives and arrival verification                  | Will leads; consumes Ethan's observations; Milind uses an agreed navigation seam only when needed.                                                                                         |
+| Nearby interaction/digging, collection verification and inventory/result reporting              | Milind leads; nearby-positioned safe fixtures or fakes permit independent tests; no competing navigation or perception.                                                                    |
+| Emergency/hold/water recovery                                                                   | Ethan's unfinished work is preserved on published branch `ethan-surface-recovery`; paused outside the immediate critical path. Do not merge, discard, edit or claim live validation of it. |
+| Shared ActionRunner, session lifecycle, versions and project docs                               | Affected owners coordinate changes before implementation; file location does not grant exclusive redesign authority.                                                                       |
 
 Ownership is settled; exact observation-to-planner mapping, target evidence/freshness and any navigation request/result seam remain to be agreed using existing contracts. No shared API redesign is approved by this update. Future learned policies must operate through validated body tools.
 
@@ -45,9 +45,10 @@ The operator disconnects their bots, saves/stops their owned server and confirms
 
 Each stream keeps: human owner; branch/base main commit; status and completed checkpoint; changed contracts/PRs; checks actually run; offline/live/visual evidence; last relevant bot/server state; blockers/dependencies; next bounded task. Assignments/commit IDs not recorded here must be confirmed by the team, never fabricated. Logs are local ignored evidence: keep sufficient durable summaries in docs for another checkout to resume.
 
-
 ## Formatting and line-ending status
 
-A known pre-existing formatting/line-ending issue remains unresolved. Read-only inspection before these edits found LF files, mixed endings in this checkout's TEAM_WORKFLOW.md and CRLF in surface-recovery.md, while their Git index versions use LF. This is not a fresh formatter diagnosis or a claim that line endings explain every formatting failure.
+A known pre-existing formatting/line-ending issue affected the shared baseline. Read-only inspection before these edits found LF files, mixed endings in this checkout's TEAM_WORKFLOW.md and CRLF in surface-recovery.md, while their Git index versions use LF. This is not a claim that line endings explained every formatting failure.
 
 The historical 2026-10-04 result remains 183 tests plus typecheck/build/format; it does not certify today's checkout. No full check or formatter was run for this documentation-only update. Do not mass-format unrelated files, change formatting configuration/ignore rules, or create a validation exception. Behavioral work must still run pnpm check and report any formatting failure accurately; coordinate a separately scoped correction if needed.
+
+Milind's `milind-interaction` branch applied that scoped correction on 2026-10-08: Prettier changed only table spacing in `docs/RESUME.md` and this file and removed one extra blank line here. No wording or formatting configuration changed. The branch then passed `pnpm check` with Node 24, 186 tests, build and full formatting. Local pnpm 11.19 used `pmOnFail=ignore` and `verifyDepsBeforeRun=false` because the registry needed to switch to the declared pnpm 11.25.0 was unavailable; locally installed pinned dependencies were used. This branch result does not change the historical main result.
