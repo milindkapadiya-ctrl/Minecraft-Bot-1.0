@@ -14,6 +14,13 @@ Build a watchable Minecraft Java Survival agent that eventually defeats the Ende
 
 - Architecture direction: strategic LLM/API → task coordination → fast local tactical policy → deterministic body/tools. Current streams build only bounded body capabilities suitable for future tactical selection; no speculative APIs, neural training or model integration. Immediate safety must not depend on external API latency. See `docs/PROJECT_CONTEXT.md` for the future structured experience/evaluation loop and undecided policy design.
 
+## Immediate milestone
+
+- Target the **HackHarvard Minecraft Body Prototype by October 16, 2026**: legitimate nearby observation, safe maze/obstacle navigation, a nearby interaction/resource action, verified success and a modest course variation without a hardcoded route. The course tests the reusable body for eventual fresh-world Survival Dragon completion.
+- Ethan owns perception/world model and its interface; Will owns existing navigation/movement and arrival verification; Milind owns nearby interaction/inventory and collection verification. Reuse existing contracts; use nearby-positioned fixtures or fakes for independent interaction work.
+- No neural network, strategic LLM/API integration or substantial agent-decision system in this sprint. Future learned policies use validated body tools.
+- Ethan's unfinished Surface Recovery is preserved on published branch `ethan-surface-recovery`, paused outside the immediate critical path. Do not merge, discard or edit that work, or claim live validation of it.
+
 ## Collaboration
 
 - Read `docs/RESUME.md` first, then this file and the assigned `docs/workstreams/` document before substantial work. Repository code/tests/docs override old conversations; reviewed team GitHub main is the shared baseline; local uncommitted changes remain proposals until reviewed and merged. See `docs/TEAM_WORKFLOW.md` for workflow and location status.

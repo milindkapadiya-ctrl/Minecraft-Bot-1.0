@@ -2,6 +2,12 @@
 
 Research date: 2026-09-25. This is historical design/research for later milestones, not implemented AI functionality. The current durable control-layer decision is in [PROJECT_CONTEXT](PROJECT_CONTEXT.md#intended-layered-control-architecture): strategic API → task coordination → fast local tactical policy → deterministic tools. API/model choices below require revalidation when separately authorized; they do not specify the local tactical policy or make API calls part of immediate survival reactions. The code inventory below describes the earlier checkpoint; see RESUME for current state.
 
+## Immediate body prototype scope
+
+The current milestone is the **HackHarvard Minecraft Body Prototype, October 16, 2026**: legitimate nearby observation → safe course navigation → nearby interaction → verified result, with a modest course variation and no hardcoded route. The course tests the same reusable Survival body. Ethan owns perception/world model; Will owns existing navigation/movement and arrival checks; Milind owns interaction/inventory and collection verification. See [current handoff](RESUME.md) and [team workflow](TEAM_WORKFLOW.md) for interface coordination.
+
+Reuse existing contracts and enforce safety locally. No neural network, strategic API integration or substantial agent-decision system is in sprint scope; the future architecture below is unchanged. Surface Recovery remains preserved and paused on `ethan-surface-recovery`, outside the prototype critical path.
+
 ## Boundaries
 
 Current code is deliberately small:

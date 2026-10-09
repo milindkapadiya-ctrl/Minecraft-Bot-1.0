@@ -4,17 +4,17 @@ Read [RESUME](RESUME.md) first, then [AGENTS](../AGENTS.md) and your assigned [w
 
 ## Checkout location and ownership
 
-Authoritative source checkout: `C:\Users\ejdth\OneDrive - Yale University\Minecraft-Bot-1.0`, connected to `https://github.com/milindkapadiya-ctrl/Minecraft-Bot-1.0.git`. Before documentation migration, branch `main` was clean at `f1de3d98d1fb0109e3f5d044fe03183a6ae7916c`. Migrated edits remain uncommitted proposals for human review; no workstream implementation has begun in this task.
+Authoritative source checkout: `C:\Users\ejdth\OneDrive - Yale University\Minecraft-Bot-1.0`, connected to `https://github.com/milindkapadiya-ctrl/Minecraft-Bot-1.0.git`. The 2026-10-08 HackHarvard documentation update began on clean `main` at `52fb404`. Its edits remain uncommitted proposals for human review; no implementation is part of this task.
 
 The old `ChatGPT Beats Minecraft` directory supplied the documentation drafts and retains historical runtime/world evidence. It is not shared source authority. The clone's macOS/fresh-clone instructions and additional ignore rules are preserved. Runtimes, dependencies, credentials, logs and worlds were not migrated; do not assume SurvivalBot's saved state exists here. Future live work requires explicit runtime/world selection and coordination.
 
-Confirm human owners, review assignments and shared-server coordination before branch work. No initial Git publication, remote setup or wholesale project copy is needed. This documentation migration does not authorize commits, pushes or implementation.
+Human owners are Ethan (Perception & World Model), Will (Navigation & Movement), and Milind (Interaction & Inventory). Confirm reviewers, implementation branch/base and shared-server coordination before branch work. No initial Git publication, remote setup or wholesale project copy is needed. This documentation task does not authorize commits, pushes or implementation.
 
-All three streams build the deterministic body/tools described in [PROJECT_CONTEXT](PROJECT_CONTEXT.md#intended-layered-control-architecture). Prefer bounded capabilities suitable for later tactical selection; do not create speculative APIs, train a policy or add strategic API calls within these assignments.
+The immediate milestone is the **HackHarvard Minecraft Body Prototype, October 16, 2026**: legitimate nearby observation, safe course navigation, nearby interaction, verified result and a modest variation without a hardcoded route. The course tests the same reusable body for eventual fresh-world Survival Dragon completion. No substantial agent-decision system is in sprint scope. All three streams build the deterministic body/tools described in [PROJECT_CONTEXT](PROJECT_CONTEXT.md#intended-layered-control-architecture). Prefer bounded capabilities suitable for later tactical selection; do not create speculative APIs, train a policy or add strategic API calls within these assignments.
 
 ## Working loop
 
-1. Begin from reviewed current main, using a separate checkout and workstream branch such as `codex/surface-recovery`, `codex/navigation-live` or `codex/resource-acquisition`. Never let independent agents edit the same checkout concurrently.
+1. Begin from reviewed current main, using a separate checkout and workstream branch such as `codex/perception-world-model`, `codex/navigation-live` or `codex/resource-acquisition`. Never let independent agents edit the same checkout concurrently.
 2. The developer's ChatGPT acts as local technical lead. It can assign multiple sequential bounded Codex tasks within the major objective, interpret results, and choose the next local checkpoint without central approval each time. Each task still stops at its requested boundary.
 3. Handle local implementation choices, tests, diagnostics, small bugs and internal refactors within scope. Missing upstream functionality is a reason to use the agreed seam/fake, not to duplicate the subsystem.
 4. At meaningful checkpoints, run appropriate checks, document actual evidence and limitations, review the diff/staged paths, then commit/push scoped work under the developer's authorization and propose a PR. Behavioral changes require `pnpm check`; documentation-only changes need consistency/link review, not application tests. Never claim an old baseline was freshly rerun.
@@ -23,12 +23,15 @@ All three streams build the deterministic body/tools described in [PROJECT_CONTE
 
 ## Shared boundaries
 
-| Area                                                                                 | Coordination responsibility                                                                                          |
-| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| Emergency/hold/water recovery and air telemetry                                      | A leads; preserve existing observation and movement contracts.                                                       |
-| Planner, route executor, land movement and navigation seam                           | B leads; C consumes the agreed contract.                                                                             |
-| Basic resource interaction, bounded collection and inventory result                  | C leads; no second pathfinder or perception system.                                                                  |
-| Shared ActionRunner, observation types, session lifecycle, versions and project docs | Affected owners coordinate changes before implementation; file location does not grant exclusive redesign authority. |
+| Area | Coordination responsibility |
+| --- | --- |
+| Legitimate nearby observations, known/unknown terrain, visible targets and perception interface | Ethan leads; Will and Milind consume existing contracts and coordinate changes. |
+| Existing planner, route executor, movement primitives and arrival verification | Will leads; consumes Ethan's observations; Milind uses an agreed navigation seam only when needed. |
+| Nearby interaction/digging, collection verification and inventory/result reporting | Milind leads; nearby-positioned safe fixtures or fakes permit independent tests; no competing navigation or perception. |
+| Emergency/hold/water recovery | Ethan's unfinished work is preserved on published branch `ethan-surface-recovery`; paused outside the immediate critical path. Do not merge, discard, edit or claim live validation of it. |
+| Shared ActionRunner, session lifecycle, versions and project docs | Affected owners coordinate changes before implementation; file location does not grant exclusive redesign authority. |
+
+Ownership is settled; exact observation-to-planner mapping, target evidence/freshness and any navigation request/result seam remain to be agreed using existing contracts. No shared API redesign is approved by this update. Future learned policies must operate through validated body tools.
 
 A shared-contract proposal should record the problem, current/proposed shape, owning and consuming streams, safety/knowledge effects, migration/testing plan and decision. Keep it in the relevant contract/workstream doc and PR; mark it **pending** until agreed. No new generic abstraction is required merely for coordination. Escalate major changes centrally, not just through unilateral owner edits.
 
@@ -42,3 +45,9 @@ The operator disconnects their bots, saves/stops their owned server and confirms
 
 Each stream keeps: human owner; branch/base main commit; status and completed checkpoint; changed contracts/PRs; checks actually run; offline/live/visual evidence; last relevant bot/server state; blockers/dependencies; next bounded task. Assignments/commit IDs not recorded here must be confirmed by the team, never fabricated. Logs are local ignored evidence: keep sufficient durable summaries in docs for another checkout to resume.
 
+
+## Formatting and line-ending status
+
+A known pre-existing formatting/line-ending issue remains unresolved. Read-only inspection before these edits found LF files, mixed endings in this checkout's TEAM_WORKFLOW.md and CRLF in surface-recovery.md, while their Git index versions use LF. This is not a fresh formatter diagnosis or a claim that line endings explain every formatting failure.
+
+The historical 2026-10-04 result remains 183 tests plus typecheck/build/format; it does not certify today's checkout. No full check or formatter was run for this documentation-only update. Do not mass-format unrelated files, change formatting configuration/ignore rules, or create a validation exception. Behavioral work must still run pnpm check and report any formatting failure accurately; coordinate a separately scoped correction if needed.

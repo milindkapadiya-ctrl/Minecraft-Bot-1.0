@@ -1,4 +1,12 @@
-# A — Surface recovery
+# Surface Recovery — paused
+
+**Coordination update, 2026-10-08:** Ethan's unfinished Surface Recovery work is preserved on the published branch `ethan-surface-recovery`. It is paused and excluded from the **HackHarvard Minecraft Body Prototype (October 16, 2026)** critical path. Do not merge, discard or edit that branch/work, or claim live validation. This main-branch handoff update does not change the preserved implementation.
+
+Ethan's active assignment is [Perception & World Model](perception-world-model.md). Will owns [Navigation & Movement](navigation-live.md); Milind owns [Interaction & Inventory](resource-acquisition.md). Safe dry/nearby fixtures and fakes allow independent prototype work; no one must finish recovery first.
+
+## Historical recovery plan — inactive
+
+The sections below preserve the prior proposed checkpoint and technical evidence. Their action instructions and A/B/C labels are historical, not current assignments or authorization. The prior status is superseded by the pause above. No branch contents were inspected or validated in this documentation task; branch preservation/publication is recorded from the project decision.
 
 ## Purpose and major objective
 

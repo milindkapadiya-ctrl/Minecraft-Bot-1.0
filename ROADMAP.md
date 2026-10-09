@@ -2,11 +2,37 @@
 
 ## Current project status
 
-Milestones 0–1 and the first Milestone 2 slice are implemented; Milestone 2 remains incomplete. Current baseline: **183 tests plus typecheck/build/format** (last established 2026-10-04, not rerun for collaboration setup). Planner/executor and walk_to have offline evidence; planned navigation and walk_to have no successful live validation. Emergency surfacing passed live; surface hold is offline only. No AI integration or general resource routines.
+Milestones 0–1 and the first Milestone 2 slice are implemented; Milestone 2 remains incomplete. Current baseline: **183 tests plus typecheck/build/format** (last established 2026-10-04, not rerun for the 2026-10-08 documentation update). Planner/executor and walk_to have offline evidence; planned navigation and walk_to have no successful live validation. Emergency surfacing passed live; surface hold is offline only. No AI integration or general resource routines.
 
-Read [RESUME](docs/RESUME.md) for current state and [team workflow](docs/TEAM_WORKFLOW.md) for coordination. Active assignments: [surface recovery](docs/workstreams/surface-recovery.md), [navigation live](docs/workstreams/navigation-live.md), [resource acquisition](docs/workstreams/resource-acquisition.md). Each owns its next checkpoint. Historical next-task suggestions below are not current assignments.
+Read [RESUME](docs/RESUME.md) for current state and [team workflow](docs/TEAM_WORKFLOW.md) for coordination. Historical next-task suggestions below are not current assignments.
 
-The three workstreams remain deterministic body/tool work. The [layered architecture and learning loop](docs/PROJECT_CONTEXT.md#intended-layered-control-architecture) describe future direction, not implemented policy/training infrastructure or additional current assignments.
+## Immediate milestone — HackHarvard Minecraft Body Prototype
+
+Target: **October 16, 2026**. Build a reusable body for the eventual fresh-world Survival Dragon-kill agent. The small maze/obstacle course is a testing environment for that same bot.
+
+Acceptance requires a bounded demonstration that:
+
+1. Observes nearby terrain using legitimate game information, preserving known versus unknown.
+2. Navigates a small maze/obstacle course with safe movement.
+3. Performs a nearby interaction or resource action.
+4. Verifies arrival and the interaction/result, including inventory evidence when claiming collection.
+5. Handles a modest course variation through fresh observations and existing planning/tools, without a hardcoded route.
+
+Active ownership:
+
+- **Ethan — [Perception & World Model](docs/workstreams/perception-world-model.md):** legitimate nearby observations, known/unknown terrain, visible targets and the shared perception interface.
+- **Will — [Navigation & Movement](docs/workstreams/navigation-live.md):** existing planner, route executor, movement primitives and arrival verification; consumes Ethan's observations.
+- **Milind — [Interaction & Inventory](docs/workstreams/resource-acquisition.md):** nearby interaction/digging, collection verification and inventory/result reporting; independently testable with nearby-positioned fixtures or fakes.
+
+Reuse existing implementations/contracts. No neural network, strategic LLM/API integration or substantial agent-decision system in this sprint. Future learned policies must select validated body tools. The [long-term architecture](docs/PROJECT_CONTEXT.md#intended-layered-control-architecture) and Dragon objective remain intact.
+
+**Surface Recovery is paused:** Ethan's unfinished work is preserved on the published branch `ethan-surface-recovery`, outside the prototype critical path. Do not merge, discard or edit that branch/work, or claim live validation. [Recovery handoff](docs/workstreams/surface-recovery.md) retains historical evidence.
+
+### Evidence and remaining acceptance
+
+This update adds no implementation or new test/live evidence. Preserve the historical **183-test plus typecheck/build/format** result from 2026-10-04. Known pre-existing formatting/line-ending issues are recorded in [team workflow](docs/TEAM_WORKFLOW.md#formatting-and-line-ending-status); no exception or mass-formatting is authorized.
+
+Pending: agree existing perception-to-planner/target seams; validate a legitimate safe dry fixture and single live walk_to before a tiny planned route; demonstrate the nearby action and verified result; then record a modest course variation and human visual/watchability check. Record offline, installed-physics, live and visual evidence separately. Course setup is coordinated separately from gameplay and must not supply privileged knowledge or bypass no-cheat rules. Surface Recovery is not required to begin independent dry-fixture or fake-based work.
 
 ## Recorded milestone evidence (historical counts)
 

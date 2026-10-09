@@ -8,7 +8,15 @@ Build a watchable agent that eventually completes Minecraft Java Survival legiti
 
 Deterministic perception, movement, navigation and interaction tools come first: these are the bot's body/tool layer. Reliable tools make decisions observable and failures diagnosable; connecting learned decisions before those guarantees would hide physical/knowledge defects behind reasoning. No local learned tactical policy or AI/API integration exists today. Future API autonomy requires separate official-guidance review, usage accounting and a persistent spending preflight gate.
 
-The roadmap moves from these foundations to bounded basic resource routines, constrained AI goals, early Survival equipment/food, Nether progression, End preparation and the Dragon. These are future objectives, not features already implemented. The current resource stream prepares a small deterministic acquisition pipeline, not the entire crafting or progression system.
+The roadmap moves from these foundations to bounded basic resource routines, constrained AI goals, early Survival equipment/food, Nether progression, End preparation and the Dragon. These are future objectives, not features already implemented. The current interaction stream prepares nearby bounded actions and verified results using existing tools, not the entire crafting or progression system.
+
+## Immediate prototype milestone
+
+The **HackHarvard Minecraft Body Prototype**, targeted for **October 16, 2026**, demonstrates legitimate nearby observation, safe navigation through a small maze/obstacle course, a nearby interaction/resource action and verification of its result. A modest course variation must be handled without a hardcoded route. The obstacle course is a test environment for the reusable Minecraft body, not a separate bot or a replacement for the fresh-world Survival Dragon objective.
+
+Ethan owns perception/world model and its shared interface; Will owns existing navigation/movement and arrival verification; Milind owns nearby interaction, collection verification and inventory/result reporting. Consumers reuse legitimate observations and existing contracts; nearby-positioned test setups and fakes keep interaction work independent of navigation completion. See [team workflow](TEAM_WORKFLOW.md).
+
+This sprint excludes neural networks, strategic LLM/API integration and substantial agent-decision systems. Future learned policies must operate through validated body tools. Ethan's unfinished Surface Recovery is preserved on published branch `ethan-surface-recovery`, paused outside the critical path; no merge, discard, edit or new live-validation claim is authorized.
 
 ## Intended layered control architecture
 
@@ -85,4 +93,4 @@ Corrected telemetry confirmed one emergency ascent restored breathing briefly. A
 
 Fake tests establish contracts, ordering and cleanup; installed physics tests exercise a client model; real-server observations establish protocol/physical behavior under recorded conditions; human observation establishes only what was actually seen. Preserve these distinctions and dated measurements. Limited fixture passes are not universal safety proofs.
 
-Three workstreams now separate finishing water recovery, validating land navigation, and consuming navigation for basic resources. Shared truth flows through reviewed Git main, code, tests and documentation, not copied chats. [Team workflow](TEAM_WORKFLOW.md) allows local bounded iteration while reserving cross-stream architecture and safety decisions for coordination.
+Three active workstreams now separate perception/world model (Ethan), navigation/movement (Will), and interaction/inventory (Milind). Surface Recovery is paused. Shared truth flows through reviewed Git main, code, tests and documentation, not copied chats. [Team workflow](TEAM_WORKFLOW.md) allows local bounded iteration while reserving cross-stream architecture and safety decisions for coordination.

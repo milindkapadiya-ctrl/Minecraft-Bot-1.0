@@ -1,10 +1,10 @@
-# C — Resource acquisition
+# Milind — Interaction & Inventory
 
 ## Purpose and major objective
 
-Build a small deterministic pipeline for a legitimately visible/known basic resource: validate target → request existing navigation → guarded interaction/dig → bounded pickup → inventory-confirmed result. Prepare a reliable resource tool, not full Minecraft progression. Follow [team workflow](../TEAM_WORKFLOW.md) and [AGENTS](../../AGENTS.md).
+Own nearby block interaction, guarded digging, collection verification and inventory/result reporting for one legitimately visible/known target. Start from a nearby-positioned safe setup or a fake so this work is independently testable; request existing navigation only when the scoped action needs it. Prepare a reusable body tool, not full Minecraft progression. Follow [team workflow](../TEAM_WORKFLOW.md) and [AGENTS](../../AGENTS.md).
 
-This stream owns deterministic body/tool work only. Keep capabilities clean and bounded for future tactical selection; do not add speculative APIs, local policy training or strategic model integration. See [layered architecture](../PROJECT_CONTEXT.md#intended-layered-control-architecture).
+Owner: **Milind**. Target: **HackHarvard Minecraft Body Prototype, October 16, 2026**. The course is a test environment for the same reusable Survival body. No substantial agent-decision system is in scope. This stream owns deterministic body/tool work only. Keep capabilities clean and bounded for future tactical selection; do not add speculative APIs, local policy training or strategic model integration. See [layered architecture](../PROJECT_CONTEXT.md#intended-layered-control-architecture).
 
 Live fixture evidence below belongs to the original runtime/world, which is not included in this source clone. Select and coordinate the runtime explicitly before live work; see [RESUME](../RESUME.md).
 
@@ -16,7 +16,7 @@ Live fixture evidence below belongs to the original runtime/world, which is not 
 
 ## Owned scope and shared contracts
 
-Own bounded basic target validation, interaction sequencing, inventory deltas, pickup/result verification and structured failures. Use existing legitimate observations and interaction tools. Agree with B on a narrow navigation seam derived from the existing route contract; use a fake/test seam while production navigation is unavailable. Any new shared contract is a proposal to coordinate, not permission to independently define B's API.
+Own bounded basic target validation, interaction sequencing, inventory deltas, pickup/result verification and structured failures. Use existing legitimate observations and interaction tools. Consume Ethan-owned perception/visible-target evidence. Agree with Will on a narrow navigation seam derived from the existing route contract; use a fake/test seam while production navigation is unavailable. Any new shared contract is a proposal to coordinate, not permission to independently define Will's API.
 
 The resource layer requests traversal and consumes outcomes; it does not issue a competing path search or take over movement controls. Preserve ActionRunner sequencing, cancellation/deadline and cleanup. Revalidate target visibility/state before digging; do not assume a drop was collected from a successful dig or an item disappearing. Inventory confirmation must distinguish pre-existing items and record uncertainty.
 
@@ -24,19 +24,19 @@ Out of scope: second navigation/perception architecture, arbitrary loaded-world 
 
 ## Next bounded checkpoint and dependencies
 
-Select one basic target type supported by current guarded digging and inventory tools. With B, agree the request/result seam and document ownership. Add a small offline sequence around existing interaction contracts with fake navigation, including navigation refusal and unsuccessful pickup. Do not implement a placeholder generalized framework or a second navigator simply because the live bridge is missing.
+Select one nearby target supported by existing guarded digging and inventory tools. Review target evidence/freshness with Ethan. Build the smallest bounded interaction/result checkpoint with fakes or a legitimately nearby-positioned fixture; navigation completion is not a prerequisite. Test unsuccessful digging/collection and pre-existing inventory as well as success.
 
-After offline acceptance, assign separately bounded integration/live work only when B provides the supported navigation seam and a legitimate safe fixture exists. Missing navigation need not block all resource contract work, but it does block claims of live autonomous acquisition.
+If collection requires repositioning, coordinate with Will on the existing navigation seam and use an agreed fake while unavailable. Do not create a competing navigator or issue ad hoc movement to force pickup. A dig success is not collection success; report uncollected/unknown outcomes accurately. Scope live interaction separately once a safe fixture exists, then integrate the course and modest variation with the other owners. Surface Recovery is paused outside the critical path.
 
 ## Definition of done and validation
 
-- One supported basic resource completes the bounded pipeline using the shared navigation interface, with inventory-confirmed acquisition or an explicit structured failure.
+- One supported nearby interaction/resource action returns a verified result; collection claims require inventory-confirmed acquisition or an explicit structured failure. Use the shared navigation interface only where movement is needed.
 - Offline tests cover stale/unknown targets, navigation refusal/failure, interaction failure, absent pickup, cancellation/deadline, ordering, cleanup and inventory evidence without duplicating navigation tests.
-- Full `pnpm check` passes for behavioral changes. When dependencies permit, one tightly bounded live run demonstrates the whole supported pipeline; supervised guided pickup is not equivalent to autonomous pipeline success.
-- Contracts, limits and evidence are documented for B/consumers; all owned live processes are cleanly stopped. If only fake integration is available, report an offline checkpoint and the live blocker rather than declaring the major objective complete.
+- Full `pnpm check` passes for behavioral changes. When a legitimate nearby fixture is available, one tightly bounded live run demonstrates the supported action and verification; supervised guided pickup is not equivalent to autonomous pipeline success.
+- Contracts, limits and evidence are documented for Will/Ethan and consumers; all owned live processes are cleanly stopped. If only fake integration is available, report an offline checkpoint and the live blocker rather than declaring the major objective complete.
 
 Reserve the shared server through the coordinator. Escalate new cross-stream interfaces, unavailable observation requirements, pickup requiring new navigation capabilities, broader progression, or any AGENTS gate. Never weaken safety or expose hidden entities to force a pickup.
 
 ## Status / handoff
 
-Documentation assignment only; human owner/branch/base commit not recorded here; confirm team assignments and base commit before work. No PR or agreed new navigation API yet. Baseline183/full checks from2026-10-04; no tests run for this setup. Next: one resource/seam agreement and bounded offline pipeline checkpoint. Record target scope, seam version/PR, evidence, integration dependencies and next task after each checkpoint.
+Owner: Milind. Coordination updated 2026-10-08; implementation branch/base and reviewers remain to be recorded. No implementation, PR or agreed new navigation API in this task. Historical baseline: 183 tests/full checks from 2026-10-04, not rerun. Next: choose one nearby target and review existing perception/interaction contracts; test independently with fakes or a safe nearby fixture. Coordinate with Will only for required movement. Record target scope, verified result, evidence and remaining dependencies at each checkpoint. See [formatting/line-ending status](../TEAM_WORKFLOW.md#formatting-and-line-ending-status).
