@@ -4,6 +4,7 @@ import type { Log } from "./telemetry/logger.js";
 import { ActionRunner } from "./actions/runner.js";
 import { traceMotion } from "./telemetry/motion.js";
 import type { Target } from "./actions/local.js";
+import { collectNearbyDirt } from "./actions/collect-nearby.js";
 
 export function movementConsole(bot: Bot, log: Log, stop: () => void) {
   const runner = new ActionRunner(bot, log);
@@ -20,6 +21,7 @@ export function movementConsole(bot: Bot, log: Log, stop: () => void) {
       "inventory",
       "approach <block index from last inspect, starting at 0>",
       "dig <block index from last inspect, starting at 0>",
+      "collect <adjacent dirt/grass index from last inspect>",
       "step_up <adjacent raised block index from last inspect>",
       "step_down <adjacent lower support index from last inspect>",
       "cancel",
@@ -46,6 +48,7 @@ export function movementConsole(bot: Bot, log: Log, stop: () => void) {
     }
     const controller = new AbortController();
     let actions: unknown[];
+    let collectTarget: Target | undefined;
     if (command === "demo" && args.length === 1) {
       const yaw = Math.atan2(
         Math.sin(bot.entity.yaw + Math.PI / 2),
@@ -85,6 +88,14 @@ export function movementConsole(bot: Bot, log: Log, stop: () => void) {
     ) {
       actions = [{ type: command, timeoutMs: 1000 }];
     } else if (
+      command === "collect" &&
+      args.length === 2 &&
+      /^\d+$/.test(args[1]!) &&
+      targets[Number(args[1])]
+    ) {
+      collectTarget = targets[Number(args[1])];
+      actions = [];
+    } else if (
       ["approach", "dig", "step_up", "step_down"].includes(command ?? "") &&
       args.length === 2 &&
       /^\d+$/.test(args[1]!)
@@ -98,6 +109,16 @@ export function movementConsole(bot: Bot, log: Log, stop: () => void) {
     }
     sequence = controller;
     void (async () => {
+      if (collectTarget) {
+        const result = await collectNearbyDirt(
+          bot,
+          runner,
+          collectTarget,
+          controller.signal,
+        );
+        log("collect_result", { ...result });
+        return;
+      }
       for (const action of actions) {
         if (controller.signal.aborted) break;
         const result = await runner.run(action, controller.signal);
