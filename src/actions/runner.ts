@@ -157,6 +157,8 @@ export interface ExclusiveContext {
   checkpoint(): void;
   look(yaw: number, pitch: number): Promise<void>;
   observe<T>(read: () => T): T;
+  /** Camera restoration only during interrupted cleanup; no movement capability. */
+  restoreLook(yaw: number, pitch: number): Promise<void>;
 }
 type ExclusiveWork = (context: ExclusiveContext) => Promise<void>;
 const canonical = new WeakMap<Bot, ActionRunner>();
@@ -164,7 +166,9 @@ const canonical = new WeakMap<Bot, ActionRunner>();
 // No queue: callers await each result; overlap is rejected instead of retaining
 // stale movement requests. This class is the sole owner of movement controls.
 export class ActionRunner {
-  private active: { id: string; finish: (code: Code) => void } | undefined;
+  private active:
+    | { id: string; finish: (code: Code, shutdown?: boolean) => void }
+    | undefined;
   private closed = false;
   constructor(
     private readonly bot: Bot,
@@ -184,7 +188,7 @@ export class ActionRunner {
   }
   close() {
     this.closed = true;
-    this.active?.finish("interrupted");
+    this.active?.finish("interrupted", true);
     closeControls(this.bot);
     this.bot.off("end", this.disconnect);
   }
@@ -277,6 +281,14 @@ export class ActionRunner {
       const ownedLook = (yaw: number, pitch: number) =>
         ownership.within(() => this.bot.look(yaw, pitch, true));
       let ended = false;
+      let finalized = false;
+      let workPending = false;
+      let pendingLook = false;
+      let completionCode: Code = "execution_error";
+      let cleanupTimer: NodeJS.Timeout | undefined;
+      // Separate from the operation deadline: cooperative finally/restoration
+      // gets a bounded opportunity, never an indefinite shutdown dependency.
+      const cleanupBoundMs = 500;
       let lookApplied = false;
       let timer: NodeJS.Timeout | undefined;
       let interval: NodeJS.Timeout | undefined;
@@ -324,14 +336,68 @@ export class ActionRunner {
             type: Math.floor(r / 4096),
           });
       };
-      const finish = (code: Code) => {
-        if (ended) return;
-        ownership.within(() => complete(code));
+      const poison = (reason: string) => {
+        details.cleanup = reason;
+        this.closed = true;
+        completionCode = "execution_error";
       };
-      const complete = (code: Code) => {
+      const clear = () => {
+        for (const [name, cleanup] of [
+          [
+            "stopDigging",
+            () => {
+              if (digStarted) {
+                digStarted = false;
+                this.bot.stopDigging();
+              }
+            },
+          ],
+          ["clearControlStates", () => this.bot.clearControlStates()],
+        ] as const) {
+          try {
+            ownership.within(cleanup);
+          } catch {
+            details.cleanupOperation = name;
+            poison("failed");
+          }
+        }
+      };
+      const finalize = () => {
+        if (finalized || ((workPending || pendingLook) && !this.closed)) return;
+        finalized = true;
+        clearTimeout(cleanupTimer);
+        // Re-clear after cooperative cleanup; its success is required for reuse.
+        clear();
+        if (!details.cleanup) details.cleanup = "complete";
+        if (action.type === "dig") {
+          try {
+            details.inventoryAfter = inventory(this.bot);
+          } catch {
+            completionCode = "execution_error";
+          }
+        }
+        ownership.release();
+        if (this.closed) closeControls(this.bot);
+        this.active = undefined;
+        const r = result(completionCode);
+        this.log("action_result", { ...r, request: action });
+        resolve(r);
+      };
+      const finish = (code: Code, shutdown = false) => {
+        if (finalized) return;
+        if (ended) {
+          if (shutdown) {
+            details.cleanup = "shutdown_abandoned";
+            finalize();
+          }
+          return;
+        }
         ended = true;
-        if (code === "ok" && performance.now() - started >= action.timeoutMs)
-          code = "timeout";
+        completionCode =
+          code === "ok" && performance.now() - started >= action.timeoutMs
+            ? "timeout"
+            : code;
+        details.completionCause = completionCode;
         clearTimeout(timer);
         clearInterval(interval);
         signal?.removeEventListener("abort", abort);
@@ -346,24 +412,19 @@ export class ActionRunner {
           this.bot._client.off("block_change", serverBlock);
           this.bot._client.off("multi_block_change", serverBlocks);
         }
-        try {
-          if (digStarted) this.bot.stopDigging();
-        } catch {
-          code = "execution_error";
-        }
-        try {
-          this.bot.clearControlStates();
-          if (action.type === "dig")
-            details.inventoryAfter = inventory(this.bot);
-        } catch {
-          code = "execution_error";
-        }
-        ownership.release();
-        this.active = undefined;
+        clear();
         cancellation.abort();
-        const r = result(code);
-        this.log("action_result", { ...r, request: action });
-        resolve(r);
+        if (finalized) return;
+        if (shutdown && (workPending || pendingLook))
+          details.cleanup = "shutdown_abandoned";
+        if ((!workPending && !pendingLook) || this.closed || shutdown) {
+          finalize();
+        } else {
+          cleanupTimer = setTimeout(() => {
+            poison("timeout");
+            finalize();
+          }, cleanupBoundMs);
+        }
       };
       const abort = () => finish("cancelled");
       const interrupted = () => finish("interrupted");
@@ -459,7 +520,6 @@ export class ActionRunner {
       try {
         ownership.within(() => this.bot.clearControlStates());
         if (action.type === "exclusive") {
-          let pendingLook = false;
           const checkpoint = () => {
             if (ended || cancellation.signal.aborted)
               throw new Error("action_expired");
@@ -491,6 +551,33 @@ export class ActionRunner {
                 checkpoint();
               } finally {
                 pendingLook = false;
+                if (ended && !workPending) finalize();
+              }
+            },
+            async restoreLook(yaw, pitch) {
+              if (
+                !ended ||
+                finalized ||
+                thisRunner.closed ||
+                pendingLook ||
+                !validateAction({
+                  type: "look",
+                  yaw,
+                  pitch,
+                  timeoutMs: action.timeoutMs,
+                })
+              )
+                throw new Error("cleanup_look_unavailable");
+              pendingLook = true;
+              try {
+                await ownership.within(() => thisBot.look(yaw, pitch, true));
+                if (finalized) throw new Error("action_expired");
+              } catch (error) {
+                if (!finalized) poison("restoration_failed");
+                throw error;
+              } finally {
+                pendingLook = false;
+                if (ended && !workPending) finalize();
               }
             },
             observe(read) {
@@ -502,18 +589,34 @@ export class ActionRunner {
             },
           };
           const thisBot = this.bot;
+          const thisRunner = this;
+          workPending = true;
           void Promise.resolve()
             .then(() => {
               checkpoint();
               return work!(context);
             })
             .then(() => {
-              if (!ended) {
+              workPending = false;
+              if (ended) finalize();
+              else {
                 checkpoint();
                 finish("ok");
               }
             })
-            .catch(() => finish("execution_error"));
+            .catch((error: unknown) => {
+              workPending = false;
+              if (ended) {
+                if (
+                  !finalized &&
+                  !(
+                    error instanceof Error && error.message === "action_expired"
+                  )
+                )
+                  poison("restoration_failed");
+                finalize();
+              } else finish("execution_error");
+            });
         } else if (action.type === "inspect" || action.type === "inventory") {
           details[action.type === "inspect" ? "blocks" : "inventory"] =
             action.type === "inspect" ? inspect(this.bot) : inventory(this.bot);

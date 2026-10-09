@@ -20,7 +20,9 @@ class MotionBot extends EventEmitter {
   clears = 0;
   lookForce: boolean | undefined;
   lookError = false;
+  clearError = false;
   clearControlStates() {
+    if (this.clearError) throw new Error("SECRET cleanup failure");
     this.controls.clear();
     this.clears++;
   }
@@ -254,6 +256,7 @@ test("cancelled composite and stale capabilities cannot affect newer ownership",
   );
   await new Promise<void>((r) => setImmediate(r));
   abort.abort();
+  release();
   assert.equal((await first).code, "cancelled");
   assert.equal(scope.signal.aborted, true);
   const second = runner.run(move);
@@ -290,7 +293,7 @@ test("composite timeout, error and stationary interruption release controls", as
         ? "execution_error"
         : reason === "drift"
           ? "interrupted"
-          : "timeout",
+          : "execution_error",
     );
     assert.equal(bot.controls.size, 0);
     runner.close();
@@ -410,5 +413,188 @@ test("Mineflayer-style dynamic stopDigging replacement remains guarded and revoc
   assert.throws(() => {
     extended.stopDigging = () => {};
   }, /control_ownership/);
+  runner.close();
+});
+
+test("interrupted composite keeps ownership until asynchronous cleanup settles", async () => {
+  const { runner } = setup();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  let cleaning = false;
+  const first = runner.runExclusive(500, async (scope) => {
+    try {
+      await new Promise<void>((r) =>
+        scope.signal.addEventListener("abort", () => r(), { once: true }),
+      );
+    } finally {
+      cleaning = true;
+      await gate;
+    }
+  });
+  await new Promise<void>((r) => setImmediate(r));
+  runner.cancel();
+  await new Promise<void>((r) => setImmediate(r));
+  try {
+    assert.equal(cleaning, true);
+    assert.equal((await runner.run(move)).code, "busy");
+  } finally {
+    release();
+    runner.cancel();
+    await first;
+    runner.close();
+  }
+});
+
+test("failed control cleanup poisons canonical controller instead of permitting reuse", async () => {
+  const { bot, runner } = setup();
+  const pending = runner.run(move);
+  bot.clearError = true;
+  runner.cancel();
+  assert.equal((await pending).code, "execution_error");
+  assert.equal(bot.controls.get("forward"), true);
+  try {
+    assert.equal((await runner.run(look)).code, "closed");
+  } finally {
+    bot.clearError = false;
+    runner.close();
+  }
+});
+
+test("cleanup restoration remains exclusive and expired restoration cannot affect a newer action", async () => {
+  const { bot, runner } = setup();
+  let scope!: import("../src/actions/runner.js").ExclusiveContext;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  const first = runner.runExclusive(500, async (owned) => {
+    scope = owned;
+    await owned.look(1, 0);
+    try {
+      await new Promise<void>((r) =>
+        owned.signal.addEventListener("abort", () => r(), { once: true }),
+      );
+    } finally {
+      await gate;
+      await owned.restoreLook(0, 0);
+    }
+  });
+  await new Promise<void>((r) => setImmediate(r));
+  await assert.rejects(scope.restoreLook(0, 0), /cleanup_look_unavailable/);
+  runner.cancel();
+  assert.equal((await runner.run(move)).code, "busy");
+  await assert.rejects(scope.look(2, 0), /action_expired/);
+  release();
+  const result = await first;
+  assert.equal(result.code, "cancelled");
+  assert.equal(result.details?.cleanup, "complete");
+  assert.equal(bot.entity.yaw, 0);
+  const second = runner.run(move);
+  await assert.rejects(scope.restoreLook(2, 0));
+  assert.equal(bot.entity.yaw, 0);
+  assert.equal(bot.controls.get("forward"), true);
+  runner.cancel();
+  await second;
+  runner.close();
+});
+
+test("unsettled cleanup reaches its bound, fails closed and revokes late restoration", async () => {
+  const { bot, runner } = setup();
+  let scope!: import("../src/actions/runner.js").ExclusiveContext;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  const first = runner.runExclusive(500, async (owned) => {
+    scope = owned;
+    await gate;
+  });
+  await new Promise<void>((r) => setImmediate(r));
+  runner.cancel();
+  const result = await first;
+  assert.equal(result.code, "execution_error");
+  assert.equal(result.details?.completionCause, "cancelled");
+  assert.equal(result.details?.cleanup, "timeout");
+  assert.ok(result.durationMs >= 450 && result.durationMs < 1500);
+  assert.equal((await runner.run(move)).code, "closed");
+  await assert.rejects(scope.restoreLook(1, 0));
+  assert.throws(() => bot.clearControlStates(), /control_ownership/);
+  release();
+  runner.close();
+});
+
+test("restoration failure fails closed with sanitized diagnostics", async () => {
+  const { bot, runner, records } = setup();
+  const first = runner.runExclusive(500, async (scope) => {
+    try {
+      await new Promise<void>((r) =>
+        scope.signal.addEventListener("abort", () => r(), { once: true }),
+      );
+    } finally {
+      await scope.restoreLook(0, 0);
+    }
+  });
+  await new Promise<void>((r) => setImmediate(r));
+  bot.lookError = true;
+  runner.cancel();
+  const result = await first;
+  assert.equal(result.code, "execution_error");
+  assert.equal(result.details?.cleanup, "restoration_failed");
+  assert.equal((await runner.run(move)).code, "closed");
+  assert.equal(JSON.stringify(records).includes("SECRET"), false);
+  runner.close();
+});
+
+test("authoritative shutdown during pending cleanup is immediate and permanently revokes controls", async () => {
+  const { bot, runner } = setup();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  const first = runner.runExclusive(500, async () => {
+    await gate;
+  });
+  await new Promise<void>((r) => setImmediate(r));
+  runner.cancel();
+  runner.close();
+  const result = await first;
+  assert.equal(result.code, "cancelled");
+  assert.equal(result.details?.cleanup, "shutdown_abandoned");
+  assert.equal((await runner.run(move)).code, "closed");
+  assert.throws(() => bot.clearControlStates(), /control_ownership/);
+  assert.equal(bot.controls.size, 0);
+  release();
+  await new Promise<void>((r) => setImmediate(r));
+  assert.equal(bot.eventNames().length, 0);
+});
+
+test("pending restoration promise retains ownership even when the composite callback settles", async () => {
+  const { bot, runner } = setup();
+  let finishLook!: () => void;
+  bot.look = async () => {
+    await new Promise<void>((r) => {
+      finishLook = r;
+    });
+  };
+  let scope!: import("../src/actions/runner.js").ExclusiveContext;
+  let finishWork!: () => void;
+  const workGate = new Promise<void>((r) => {
+    finishWork = r;
+  });
+  const first = runner.runExclusive(500, async (owned) => {
+    scope = owned;
+    await workGate;
+  });
+  await new Promise<void>((r) => setImmediate(r));
+  runner.cancel();
+  const restoration = scope.restoreLook(0, 0);
+  finishWork();
+  await new Promise<void>((r) => setImmediate(r));
+  assert.equal((await runner.run(move)).code, "busy");
+  finishLook();
+  await restoration;
+  assert.equal((await first).code, "cancelled");
   runner.close();
 });

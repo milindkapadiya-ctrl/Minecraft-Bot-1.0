@@ -93,3 +93,8 @@ Bounded surface hold (2026-10-04): separate one-second swim-up breathing window,
 
 - Canonical runner, bounded composite ownership, guarded control methods, session-safe closure and cross-process connection reservation implemented on isolated will-shared-actionrunner. Paused recovery controllers unchanged; standalone legacy mode is enforced separately.
 - Offline suite196/196 passes; TypeScript/build pass. Inherited RESUME/TEAM_WORKFLOW formatting failures remain. No scanner, terrain contract, navigation changes or live tests. Pending: HQ review, updated-runtime manual lifecycle check and separately authorized scanner integration. See docs/shared-action-ownership.md for exact boundaries.
+
+### SHARED-01 PR #3 cleanup safety revision — 2026-10-08
+
+- Reproduced premature composite ownership release and reuse after throwing control cleanup. Cleanup now retains exclusive ownership for bounded cooperative unwinding/restoration; failure or500ms expiry permanently closes the controller. Authoritative shutdown revokes access without waiting indefinitely.
+- Seven new offline regressions; focused63/63, full203/203, TypeScript/build pass. Inherited RESUME/TEAM_WORKFLOW formatting failures remain. No live connection or changes to recovery/navigation implementations. Remaining manual check: real cleanup-failure disconnect; HQ re-review before merge. See docs/shared-action-ownership.md.
