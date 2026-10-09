@@ -9,6 +9,36 @@ export const eyeHeight = (bot: Bot) =>
 const ground = new Set(["grass_block", "dirt", "stone", "cobblestone"]);
 export const inventory = (bot: Bot) =>
   bot.inventory.items().map(({ name, count, slot }) => ({ name, count, slot }));
+type InventorySnapshot = ReturnType<typeof inventory>;
+
+// Grass blocks and dirt both yield dirt with the currently supported dig tool.
+// An inventory increase is observable evidence, not proof of which block
+// supplied the item when other pickups may occur concurrently.
+export function digInventoryEvidence(
+  before: InventorySnapshot,
+  after: InventorySnapshot,
+  digConfirmed: boolean,
+) {
+  const dirtCount = (items: InventorySnapshot) =>
+    items.reduce(
+      (total, item) => total + (item.name === "dirt" ? item.count : 0),
+      0,
+    );
+  const beforeCount = dirtCount(before);
+  const afterCount = dirtCount(after);
+  const delta = afterCount - beforeCount;
+  return {
+    item: "dirt",
+    beforeCount,
+    afterCount,
+    delta,
+    status: digConfirmed
+      ? delta > 0
+        ? "inventory_increase_observed"
+        : "not_observed"
+      : "unverified",
+  };
+}
 const point = (bot: Bot, p: { x: number; y: number; z: number }) =>
   bot.entity.position.clone().set(p.x, p.y, p.z);
 

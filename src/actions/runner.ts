@@ -12,6 +12,7 @@ import {
   targetBlock,
   safeDig,
   eyeHeight,
+  digInventoryEvidence,
   type Target,
 } from "./local.js";
 
@@ -220,6 +221,7 @@ export class ActionRunner {
       let lastTick = performance.now();
       let digStarted = false;
       let digDone = false;
+      let digInventoryBefore: ReturnType<typeof inventory> | undefined;
       let confirmedAt: number | undefined;
       let target: ReturnType<typeof targetBlock> = null;
       let step:
@@ -285,13 +287,22 @@ export class ActionRunner {
         } catch {
           code = "execution_error";
         }
+        let digInventoryAfter: ReturnType<typeof inventory> | undefined;
         try {
           this.bot.clearControlStates();
-          if (action.type === "dig")
-            details.inventoryAfter = inventory(this.bot);
+          if (action.type === "dig") {
+            digInventoryAfter = inventory(this.bot);
+            details.inventoryAfter = digInventoryAfter;
+          }
         } catch {
           code = "execution_error";
         }
+        if (digInventoryBefore && digInventoryAfter)
+          details.collectionEvidence = digInventoryEvidence(
+            digInventoryBefore,
+            digInventoryAfter,
+            code === "ok" && details.serverConfirmedAir === true,
+          );
         this.active = undefined;
         const r = result(code);
         this.log("action_result", { ...r, request: action });
@@ -472,7 +483,8 @@ export class ActionRunner {
             return;
           }
           if (action.type === "dig") {
-            details.inventoryBefore = inventory(this.bot);
+            digInventoryBefore = inventory(this.bot);
+            details.inventoryBefore = digInventoryBefore;
             details.serverConfirmedAir = false;
           }
           const delta = target.position

@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import type { Bot } from "mineflayer";
 import { ActionRunner, validateAction } from "../src/actions/runner.js";
 import {
+  digInventoryEvidence,
   inspect,
   flatRoute,
   safeDig,
@@ -100,6 +101,30 @@ function setup() {
   return { fake, bot, runner };
 }
 const next = () => new Promise<void>((r) => setImmediate(r));
+
+test("dig inventory evidence sums slots and excludes unrelated items", () => {
+  const before = [
+    { name: "dirt", count: 63, slot: 36 },
+    { name: "dirt", count: 2, slot: 37 },
+  ];
+  const after = [
+    { name: "dirt", count: 64, slot: 36 },
+    { name: "dirt", count: 2, slot: 37 },
+    { name: "cobblestone", count: 3, slot: 38 },
+  ];
+  assert.deepEqual(digInventoryEvidence(before, after, true), {
+    item: "dirt",
+    beforeCount: 65,
+    afterCount: 66,
+    delta: 1,
+    status: "inventory_increase_observed",
+  });
+  assert.equal(
+    digInventoryEvidence(before, [...before, after[2]!], true).status,
+    "not_observed",
+  );
+  assert.equal(digInventoryEvidence(before, after, false).status, "unverified");
+});
 
 test("local schema copies targets and rejects malformed/out-of-bounds arguments", () => {
   const input = { type: "dig", target: { ...target }, timeoutMs: 1000 };
@@ -216,14 +241,23 @@ test("approach deadline, cancellation, and newly unsafe route stop movement", as
 });
 test("optimistic dig completion is not server confirmation", async () => {
   const { fake, runner } = setup();
+  fake.items = [{ name: "dirt", count: 2, slot: 36 }];
   const pending = runner.run({ type: "dig", target, timeoutMs: 100 });
   await next();
   assert.equal(fake.digs, 1);
   fake.removed = true;
   fake.settle?.();
+  fake.items = [{ name: "dirt", count: 3, slot: 36 }];
   const result = await pending;
   assert.equal(result.code, "timeout");
   assert.equal(result.details?.serverConfirmedAir, false);
+  assert.deepEqual(result.details?.collectionEvidence, {
+    item: "dirt",
+    beforeCount: 2,
+    afterCount: 3,
+    delta: 1,
+    status: "unverified",
+  });
   assert.equal(fake._client.listenerCount("block_change"), 0);
 });
 test("confirmed single and section block updates produce world and inventory evidence", async () => {
@@ -247,7 +281,60 @@ test("confirmed single and section block updates produce world and inventory evi
     assert.equal(result.details?.serverConfirmedAir, true);
     assert.deepEqual(result.details?.inventoryBefore, []);
     assert.deepEqual(result.details?.inventoryAfter, fake.items);
+    assert.deepEqual(result.details?.collectionEvidence, {
+      item: "dirt",
+      beforeCount: 0,
+      afterCount: 1,
+      delta: 1,
+      status: "inventory_increase_observed",
+    });
     assert.equal(fake._client.listenerCount("multi_block_change"), 0);
+  }
+});
+test("confirmed dig without a relevant pickup reports no collection evidence", async () => {
+  const { fake, runner } = setup();
+  fake.items = [{ name: "dirt", count: 4, slot: 36 }];
+  const pending = runner.run({ type: "dig", target, timeoutMs: 1200 });
+  await next();
+  fake.removed = true;
+  fake.settle?.();
+  fake.items = [
+    { name: "dirt", count: 4, slot: 36 },
+    { name: "cobblestone", count: 1, slot: 37 },
+  ];
+  fake._client.emit("block_change", { location: target, type: 0 });
+  const ticks = setInterval(() => fake.emit("physicsTick"), 50);
+  const result = await pending;
+  clearInterval(ticks);
+  assert.equal(result.code, "ok");
+  assert.deepEqual(result.details?.collectionEvidence, {
+    item: "dirt",
+    beforeCount: 4,
+    afterCount: 4,
+    delta: 0,
+    status: "not_observed",
+  });
+});
+test("dig rejection and cancellation never classify an item increase as collection", async () => {
+  for (const failure of ["rejection", "cancelled"]) {
+    const { fake, runner } = setup();
+    if (failure === "rejection")
+      fake.dig = () => Promise.reject(Error("failed"));
+    const pending = runner.run({ type: "dig", target, timeoutMs: 1000 });
+    await next();
+    fake.items = [{ name: "dirt", count: 1, slot: 36 }];
+    if (failure === "cancelled") runner.cancel();
+    const result = await pending;
+    assert.equal(
+      result.code,
+      failure === "rejection" ? "execution_error" : "cancelled",
+    );
+    assert.equal(
+      (result.details?.collectionEvidence as { status: string }).status,
+      "unverified",
+    );
+    assert.equal(fake.controls.size, 0);
+    assert.equal(fake._client.listenerCount("block_change"), 0);
   }
 });
 test("dig abort stops digging; late look resolution cannot start a cancelled dig", async () => {

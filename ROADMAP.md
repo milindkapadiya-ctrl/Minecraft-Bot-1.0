@@ -30,7 +30,9 @@ Reuse existing implementations/contracts. No neural network, strategic LLM/API i
 
 ### Evidence and remaining acceptance
 
-This update adds no implementation or new test/live evidence. Preserve the historical **183-test plus typecheck/build/format** result from 2026-10-04. Known pre-existing formatting/line-ending issues are recorded in [team workflow](docs/TEAM_WORKFLOW.md#formatting-and-line-ending-status); no exception or mass-formatting is authorized.
+The 2026-10-08 coordination update added no implementation or new test/live evidence. Preserve its historical **183-test plus typecheck/build/format** result from 2026-10-04. Known pre-existing formatting/line-ending issues are recorded in [team workflow](docs/TEAM_WORKFLOW.md#formatting-and-line-ending-status); no exception or mass-formatting is authorized.
+
+Milind's `milind-interaction` branch now has an offline dirt/grass-block dig result checkpoint: a server-confirmed dig reports dirt inventory counts and delta, with explicit observed/no-observation/unverified collection evidence. Node 24 typecheck/build and 186 tests passed; changed-file formatting passed. `pnpm check` reached lint using local pnpm 11.19 with dependency-bootstrap/version checks disabled because registry access was unavailable; lint failed only on the two documented baseline files. No live interaction was run. Remaining manual checks include a coordinated, safe nearby dirt fixture, actual server-confirmed digging and inventory pickup evidence, and the course integration/variation with the other streams.
 
 Pending: agree existing perception-to-planner/target seams; validate a legitimate safe dry fixture and single live walk_to before a tiny planned route; demonstrate the nearby action and verified result; then record a modest course variation and human visual/watchability check. Record offline, installed-physics, live and visual evidence separately. Course setup is coordinated separately from gameplay and must not supply privileged knowledge or bypass no-cheat rules. Surface Recovery is not required to begin independent dry-fixture or fake-based work.
 
