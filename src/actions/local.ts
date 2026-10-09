@@ -11,24 +11,25 @@ export const inventory = (bot: Bot) =>
   bot.inventory.items().map(({ name, count, slot }) => ({ name, count, slot }));
 type InventorySnapshot = ReturnType<typeof inventory>;
 
-// Grass blocks and dirt both yield dirt with the currently supported dig tool.
-// An inventory increase is observable evidence, not proof of which block
+// Count the expected drop for the guarded dig. An inventory increase is
+// observable evidence, not proof of which block
 // supplied the item when other pickups may occur concurrently.
 export function digInventoryEvidence(
   before: InventorySnapshot,
   after: InventorySnapshot,
   digConfirmed: boolean,
+  item = "dirt",
 ) {
-  const dirtCount = (items: InventorySnapshot) =>
+  const itemCount = (items: InventorySnapshot) =>
     items.reduce(
-      (total, item) => total + (item.name === "dirt" ? item.count : 0),
+      (total, stack) => total + (stack.name === item ? stack.count : 0),
       0,
     );
-  const beforeCount = dirtCount(before);
-  const afterCount = dirtCount(after);
+  const beforeCount = itemCount(before);
+  const afterCount = itemCount(after);
   const delta = afterCount - beforeCount;
   return {
-    item: "dirt",
+    item,
     beforeCount,
     afterCount,
     delta,
@@ -106,20 +107,82 @@ export function targetBlock(bot: Bot, target: Target): Block | null {
     : null;
 }
 
-export function safeDig(bot: Bot, b: Block) {
+// The 26.1 registry supplies the harvestable tool IDs for each block. A block
+// can be broken by hand yet fail to drop its resource; canDigBlock alone does
+// not check this. Keep the executable dig action limited to known drop types.
+export const digDrops: Record<string, string> = {
+  dirt: "dirt",
+  grass_block: "dirt",
+  sand: "sand",
+  stone: "cobblestone",
+};
+
+export function miningRule(bot: Bot, b: Block) {
+  if (!b.diggable || !Number.isFinite(b.hardness) || b.hardness < 0)
+    return { allowed: false, reason: "unbreakable_or_unknown" };
+  const requiredIds = Object.entries(b.harvestTools ?? {})
+    .filter(([, allowed]) => allowed)
+    .map(([id]) => Number(id));
+  if (requiredIds.length) {
+    const requiredTools = requiredIds.map(
+      (id) => bot.registry?.items?.[id]?.name ?? `item_${id}`,
+    );
+    const heldTool = bot.heldItem?.name ?? null;
+    const heldId = bot.heldItem?.type;
+    if (heldId === undefined || !requiredIds.includes(heldId))
+      return {
+        allowed: false,
+        reason: "required_tool_not_held",
+        heldTool,
+        requiredTools,
+        availableInInventory: bot.inventory
+          .items()
+          .some((item) => requiredIds.includes(item.type)),
+      };
+  }
+  return { allowed: true, reason: "harvestable" };
+}
+
+export function safeDig(
+  bot: Bot,
+  b: Block,
+  diagnostics?: Record<string, unknown>,
+) {
   const p = bot.entity.position;
-  return (
+  const footLevel = b.position.y === Math.floor(p.y);
+  const source = p.floored();
+  const adjacentWall =
+    footLevel &&
     ["dirt", "grass_block"].includes(b.name) &&
-    b.position.y === Math.floor(p.y) - 1 &&
+    Math.abs(b.position.x - source.x) + Math.abs(b.position.z - source.z) === 1;
+  const adjacentSurface = b.position.y === Math.floor(p.y) - 1;
+  if (!(b.name in digDrops)) {
+    if (diagnostics) {
+      const rule = miningRule(bot, b);
+      diagnostics.reason =
+        rule.reason === "unbreakable_or_unknown"
+          ? rule.reason
+          : "material_not_supported_by_guarded_dig";
+    }
+    return false;
+  }
+  const physicallyAllowed =
+    (adjacentSurface || adjacentWall) &&
     Math.hypot(p.x - b.position.x - 0.5, p.z - b.position.z - 0.5) >= 1 &&
     (p.x + 0.35 < b.position.x ||
       p.x - 0.35 > b.position.x + 1 ||
       p.z + 0.35 < b.position.z ||
       p.z - 0.35 > b.position.z + 1) &&
     bot.entity.onGround &&
-    bot.canDigBlock(b) &&
-    bot.digTime(b) <= 3000
-  );
+    bot.canDigBlock(b);
+  if (!physicallyAllowed) return false;
+  const rule = miningRule(bot, b);
+  if (!rule.allowed) {
+    if (diagnostics) Object.assign(diagnostics, rule);
+    return false;
+  }
+  if (diagnostics) diagnostics.dropItem = digDrops[b.name];
+  return bot.digTime(b) <= 3000;
 }
 
 // A conservative straight, flat corridor. No jumping, slopes, fluids, doors,

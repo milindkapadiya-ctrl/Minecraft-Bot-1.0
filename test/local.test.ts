@@ -8,12 +8,27 @@ import {
   digInventoryEvidence,
   inspect,
   flatRoute,
+  miningRule,
   safeDig,
   targetBlock,
 } from "../src/actions/local.js";
 const require = createRequire(import.meta.url);
 const { Vec3 } = createRequire(require.resolve("mineflayer"))("vec3") as {
   Vec3: new (x: number, y: number, z: number) => Bot["entity"]["position"];
+};
+const mcData = createRequire(require.resolve("mineflayer"))("minecraft-data")(
+  "26.1",
+) as {
+  blocksByName: Record<
+    string,
+    {
+      hardness: number;
+      diggable: boolean;
+      harvestTools?: Record<string, boolean>;
+    }
+  >;
+  itemsByName: Record<string, { id: number; name: string }>;
+  items: Record<number, { name: string }>;
 };
 const target = { x: 0, y: 63, z: -2, stateId: 9 };
 class LocalBot extends EventEmitter {
@@ -30,7 +45,9 @@ class LocalBot extends EventEmitter {
   physicsEnabled = true;
   game = { gameMode: "survival" };
   controls = new Map<string, boolean>();
-  items: { name: string; count: number; slot: number }[] = [];
+  items: { name: string; count: number; slot: number; type?: number }[] = [];
+  heldItem: { name: string; type: number } | null = null;
+  registry = { items: mcData.items };
   inventory = { items: () => this.items };
   missing = false;
   obstacle = false;
@@ -50,6 +67,7 @@ class LocalBot extends EventEmitter {
       name: solid ? "grass_block" : this.obstacle ? "water" : "air",
       stateId: solid ? 9 : 0,
       diggable: solid,
+      hardness: solid ? 0.6 : 0,
       shapes: solid ? [[0, 0, 0, 1, 1, 1]] : [],
     };
   }
@@ -124,6 +142,42 @@ test("dig inventory evidence sums slots and excludes unrelated items", () => {
     "not_observed",
   );
   assert.equal(digInventoryEvidence(before, after, false).status, "unverified");
+  assert.equal(
+    digInventoryEvidence(before, after, true, "cobblestone").delta,
+    3,
+  );
+});
+
+test("26.1 harvest rules distinguish hand blocks, pickaxe tiers and unbreakable blocks", () => {
+  const { bot, fake } = setup();
+  const block = bot.blockAt(new Vec3(0, 63, -2))!;
+  const setBlock = (name: string) => {
+    Object.assign(block, mcData.blocksByName[name], { name });
+    return block;
+  };
+  for (const name of ["dirt", "grass_block", "sand"])
+    assert.equal(miningRule(bot, setBlock(name)).allowed, true);
+  for (const name of ["stone", "iron_ore", "diamond_ore", "obsidian"]) {
+    const rule = miningRule(bot, setBlock(name));
+    assert.equal(rule.allowed, false, name);
+    assert.equal(rule.reason, "required_tool_not_held");
+  }
+  const tool = (name: string) => {
+    fake.heldItem = { name, type: mcData.itemsByName[name]!.id };
+  };
+  tool("wooden_pickaxe");
+  assert.equal(miningRule(bot, setBlock("stone")).allowed, true);
+  assert.equal(safeDig(bot, block), true);
+  assert.equal(miningRule(bot, setBlock("iron_ore")).allowed, false);
+  tool("stone_pickaxe");
+  assert.equal(miningRule(bot, setBlock("iron_ore")).allowed, true);
+  assert.equal(miningRule(bot, setBlock("diamond_ore")).allowed, false);
+  tool("iron_pickaxe");
+  assert.equal(miningRule(bot, setBlock("diamond_ore")).allowed, true);
+  assert.equal(miningRule(bot, setBlock("obsidian")).allowed, false);
+  tool("diamond_pickaxe");
+  assert.equal(miningRule(bot, setBlock("obsidian")).allowed, true);
+  assert.equal(miningRule(bot, setBlock("bedrock")).allowed, false);
 });
 
 test("local schema copies targets and rejects malformed/out-of-bounds arguments", () => {
@@ -190,10 +244,18 @@ test("flat routes reject fluids, unknown terrain, elevation changes, and distant
 });
 test("dig rejects underfoot, changed, occluded, and unsupported materials", async () => {
   const { bot, runner } = setup();
-  assert.equal(safeDig(bot, bot.blockAt(new Vec3(0.5, 63, 1))!), false);
+  const underfoot = bot.blockAt(new Vec3(0.5, 63, 1))!;
+  Object.assign(underfoot, mcData.blocksByName.stone, { name: "stone" });
+  const underfootDetails: Record<string, unknown> = {};
+  assert.equal(safeDig(bot, underfoot, underfootDetails), false);
+  assert.equal(underfootDetails.reason, undefined);
   const stone = bot.blockAt(new Vec3(0, 63, -2))!;
-  stone.name = "stone";
+  Object.assign(stone, mcData.blocksByName.stone, { name: "stone" });
   assert.equal(safeDig(bot, stone), false);
+  Object.assign(stone, mcData.blocksByName.bedrock, { name: "bedrock" });
+  const bedrockDetails: Record<string, unknown> = {};
+  assert.equal(safeDig(bot, stone, bedrockDetails), false);
+  assert.equal(bedrockDetails.reason, "unbreakable_or_unknown");
   assert.equal(
     (
       await runner.run({
@@ -204,6 +266,54 @@ test("dig rejects underfoot, changed, occluded, and unsupported materials", asyn
     ).code,
     "not_ready",
   );
+});
+test("guarded dig permits one visible adjacent dirt wall but not a distant wall", () => {
+  const { bot } = setup();
+  const wall = bot.blockAt(new Vec3(1, 63, 1))!;
+  Object.assign(wall, mcData.blocksByName.dirt, {
+    name: "dirt",
+    position: new Vec3(1, 64, 1),
+  });
+  assert.equal(safeDig(bot, wall), true);
+  wall.position = new Vec3(2, 64, 1);
+  assert.equal(safeDig(bot, wall), false);
+});
+test("dig action refuses visible stone without a pickaxe before mining", async () => {
+  const { bot, fake, runner } = setup();
+  const original = fake.blockAt.bind(fake);
+  fake.blockAt = (p) => {
+    const block = original(p);
+    if (block?.position.equals(new Vec3(target.x, target.y, target.z)))
+      Object.assign(block, mcData.blocksByName.stone, { name: "stone" });
+    return block;
+  };
+  const result = await runner.run({ type: "dig", target, timeoutMs: 1000 });
+  assert.equal(result.code, "not_ready");
+  assert.equal(result.details?.reason, "required_tool_not_held");
+  assert.equal(result.details?.heldTool, null);
+  assert.ok(
+    (result.details?.requiredTools as string[]).includes("wooden_pickaxe"),
+  );
+  assert.equal(fake.digs, 0);
+  assert.equal(
+    bot.blockAt(new Vec3(target.x, target.y, target.z))?.name,
+    "stone",
+  );
+  fake.items = [
+    {
+      name: "wooden_pickaxe",
+      type: mcData.itemsByName.wooden_pickaxe!.id,
+      count: 1,
+      slot: 36,
+    },
+  ];
+  const withUnequippedTool = await runner.run({
+    type: "dig",
+    target,
+    timeoutMs: 1000,
+  });
+  assert.equal(withUnequippedTool.details?.availableInInventory, true);
+  assert.equal(fake.digs, 0);
 });
 test("approach stops on physics ticks, rejects overlap, and releases controls", async () => {
   const { fake, runner } = setup();
