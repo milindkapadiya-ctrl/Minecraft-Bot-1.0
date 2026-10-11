@@ -12,6 +12,7 @@ import { collectStationarity, stationaryState } from "./stationarity.js";
 import { mergeObservations } from "./merge-observations.js";
 import { ActionRunner } from "../actions/runner.js";
 import { scanNearbyTerrain, type ScanResult } from "./scan-nearby-terrain.js";
+import { PhysicsDiagnosticTrace } from "./physics-diagnostic-trace.js";
 
 export type DiagnosticMode = "single-view" | "three-view";
 /** Strict launcher selection; no arguments preserves the original behavior. */
@@ -23,8 +24,18 @@ export function diagnosticMode(args: readonly string[]): DiagnosticMode {
   throw new Error("invalid_diagnostic_mode");
 }
 
+/** Diagnostic-local opt-in; duplicate/unknown flags remain invalid. */
+export function diagnosticArguments(args: readonly string[]) {
+  const flags = args.filter((arg) => arg === "--physics-trace");
+  if (flags.length > 1) throw new Error("invalid_diagnostic_mode");
+  return {
+    mode: diagnosticMode(args.filter((arg) => arg !== "--physics-trace")),
+    physicsTrace: flags.length === 1,
+  };
+}
 type Options = {
   mode?: DiagnosticMode;
+  physicsTrace?: boolean;
   signal?: AbortSignal;
   factory?: Parameters<typeof startSession>[2];
   observe?: typeof observeNearbyTerrain;
@@ -100,10 +111,32 @@ function healthRefusal(reading: ReturnType<typeof healthReading>) {
  * Explicit three-view mode delegates owned camera work to the production scanner.
  * No retries, navigation or movement actions. Injected seams are offline tests.
  */
-export async function runTerrainDiagnostic(
+export function runTerrainDiagnostic(
   config: Config,
   log: Log,
   options: Options = {},
+) {
+  if (!options.physicsTrace)
+    return executeTerrainDiagnostic(config, log, options);
+  return tracedDiagnostic(config, log, options);
+}
+async function tracedDiagnostic(config: Config, log: Log, options: Options) {
+  const trace = new PhysicsDiagnosticTrace();
+  try {
+    return await executeTerrainDiagnostic(config, log, options, trace);
+  } finally {
+    trace.dispose();
+    // Summary logging must not mask the authoritative scan/session outcome.
+    try {
+      log("terrain_diagnostic_physics_trace", trace.summary());
+    } catch {}
+  }
+}
+async function executeTerrainDiagnostic(
+  config: Config,
+  log: Log,
+  options: Options,
+  trace?: PhysicsDiagnosticTrace,
 ) {
   const mode = options.mode ?? "single-view";
   if (mode !== "single-view" && mode !== "three-view")
@@ -244,6 +277,7 @@ export async function runTerrainDiagnostic(
     resolveReady = resolve;
   });
   const fail = (code: string) => {
+    trace?.mark("interruption", code);
     if (!reason) {
       reason = code;
       refusalPreflight = preflight();
@@ -267,8 +301,18 @@ export async function runTerrainDiagnostic(
         event === "action_result" &&
         data?.action === "exclusive"
       ) {
+        trace?.mark(
+          "exclusive_result",
+          typeof data.code === "string" ? data.code : "unavailable",
+        );
         controllerCleanup =
           data.details && (data.details as Record<string, unknown>).cleanup;
+        trace?.mark(
+          "controller_cleanup",
+          typeof controllerCleanup === "string"
+            ? controllerCleanup
+            : "unavailable",
+        );
         if (
           ["failed", "timeout", "restoration_failed"].includes(
             String(controllerCleanup),
@@ -286,6 +330,7 @@ export async function runTerrainDiagnostic(
       : undefined,
     (b) => {
       bot = b;
+      trace?.attach(b);
       // The public constructor returns the session's existing canonical instance.
       // This same acquisition path is exercised by shared session tests.
       if (mode === "three-view") runner = new ActionRunner(b, log);
@@ -530,6 +575,7 @@ export async function runTerrainDiagnostic(
             eyeHeight: eyeHeight(b),
           };
           phase = "ready";
+          trace?.mark("startup_ready", "ready");
           resolveReady();
         }
         guard();
@@ -550,6 +596,7 @@ export async function runTerrainDiagnostic(
         collector?.dispose();
         recheckReadiness = undefined;
         phase = "scanning";
+        trace?.mark("startup_disposed");
       };
       const dispose = () => {
         sessionActive = false;
@@ -606,6 +653,7 @@ export async function runTerrainDiagnostic(
         );
         runtimeReady = true;
         sessionActive = true;
+        trace?.mark("startup_collector");
         collector = collectStationarity(captureContext, {
           now: () => lastNow,
           eligible: () => initializationCompleted && !reason,
@@ -725,14 +773,17 @@ export async function runTerrainDiagnostic(
       if (!runner || !beginScan) throw Error();
       beginScan();
       captureInvoked = true;
+      trace?.mark("exclusive_invocation");
       scan = await scanNearbyTerrain({ ...captureContext, readAir }, runner, {
         signal: scanAbort.signal,
+        ...(trace ? { diagnosticTrace: trace } : {}),
         ...(options.readinessNow ? { now: options.readinessNow } : {}),
         observe: (b) => {
           observed = true;
           return (options.observe ?? observeNearbyTerrain)(b);
         },
       });
+      trace?.mark("scan_result", scan.ok ? "ok" : scan.code);
       if (!scan.ok) {
         reason ??= scan.code;
         throw Error();
@@ -811,7 +862,11 @@ export async function runTerrainDiagnostic(
     const cells = merged.cells;
     const counts = { support: 0, clear: 0, blocked: 0, unknown: 0 };
     for (const c of cells) counts[c.terrain]++;
-    const feet = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) };
+    const feet = {
+      x: Math.floor(p.x),
+      y: Math.floor(p.y),
+      z: Math.floor(p.z),
+    };
     const startColumn = [-1, 0, 1].map(
       (h) =>
         cells.find(
@@ -909,9 +964,11 @@ export async function runTerrainDiagnostic(
     sessionActive = false;
     options.signal?.removeEventListener("abort", cancel);
     collector?.dispose();
+    trace?.mark("shutdown", reason ?? "observation_complete");
     session.stop(reason ?? "observation_complete", reason ? 1 : 0);
   }
   const result = await session.done;
+  trace?.mark("session_done", result.reason);
   return {
     exitCode: reason ? 1 : result.exitCode,
     reason: reason ?? result.reason,

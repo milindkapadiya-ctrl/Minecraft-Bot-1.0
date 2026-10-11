@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { PhysicsDiagnosticTrace } from "./physics-diagnostic-trace.js";
 import { performance } from "node:perf_hooks";
 import type { ActionRunner, ExclusiveContext } from "../actions/runner.js";
 import type { OwnAir } from "../minecraft/air-compat.js";
@@ -45,6 +46,8 @@ export type ScanResult =
     }
   | { ok: false; code: string };
 type Options = {
+  /** Passive diagnostic markers; never consulted for scan decisions. */
+  diagnosticTrace?: PhysicsDiagnosticTrace;
   signal?: AbortSignal;
   /** Trusted offline seams. Production uses the actual observer/monotonic clock. */
   now?: () => number;
@@ -183,7 +186,19 @@ export async function scanNearbyTerrain(
             }
             guard();
           }
-          const acquired = await wait();
+          options.diagnosticTrace?.mark("view_start", undefined, i);
+          let acquired: Awaited<ReturnType<typeof wait>>;
+          try {
+            acquired = await wait();
+          } catch (error) {
+            options.diagnosticTrace?.mark(
+              "view_refused",
+              failure ?? "scan_interrupted",
+              i,
+            );
+            throw error;
+          }
+          options.diagnosticTrace?.mark("view_ready", "ready", i);
           try {
             guard();
             const viewId = `${scanId}:${i}`;
@@ -231,12 +246,14 @@ export async function scanNearbyTerrain(
           refuse("invalid_time");
         turning = true;
         try {
+          options.diagnosticTrace?.mark("restore_start");
           await ownedLook(scope, initial.pose.yaw, initial.pose.pitch);
         } finally {
           turning = false;
         }
         expected = { yaw: initial.pose.yaw, pitch: initial.pose.pitch };
         guard();
+        options.diagnosticTrace?.mark("restore_complete", "ok");
         const completedAtMs = now();
         if (
           !Number.isSafeInteger(completedAtMs) ||
@@ -274,13 +291,19 @@ export async function scanNearbyTerrain(
             );
         if (initial && bot) {
           try {
+            options.diagnosticTrace?.mark("restore_start");
             await scope.restoreLook(initial.pose.yaw, initial.pose.pitch);
             if (
               wrap(bot.entity.yaw) !== wrap(initial.pose.yaw) ||
               bot.entity.pitch !== initial.pose.pitch
             )
               throw new Error("scan_restoration_mismatch");
+            options.diagnosticTrace?.mark("restore_complete", "ok");
           } catch {
+            options.diagnosticTrace?.mark(
+              "restore_complete",
+              "restoration_failed",
+            );
             failure = "restoration_failed";
             throw new Error("scan_restoration_failed");
           }

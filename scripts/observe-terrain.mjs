@@ -3,7 +3,7 @@ import { readConfig } from "../dist/src/config.js";
 import { createLogger } from "../dist/src/telemetry/logger.js";
 import {
   runTerrainDiagnostic,
-  diagnosticMode,
+  diagnosticArguments,
 } from "../dist/src/perception/terrain-diagnostic.js";
 
 const controller = new AbortController();
@@ -12,12 +12,13 @@ process.on("SIGINT", interrupt);
 process.on("SIGTERM", interrupt);
 try {
   if (process.versions.node.split(".")[0] !== "24") throw Error();
-  const mode = diagnosticMode(process.argv.slice(2));
+  const { mode, physicsTrace } = diagnosticArguments(process.argv.slice(2));
   const config = readConfig(process.env);
   const { log } = createLogger(config.logDir);
   const result = await runTerrainDiagnostic(config, log, {
     signal: controller.signal,
     mode,
+    physicsTrace,
   });
   process.exitCode = result.exitCode;
   if (result.reason === "shutdown_timeout") process.exit(result.exitCode);
