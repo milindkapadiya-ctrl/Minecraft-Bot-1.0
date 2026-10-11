@@ -627,7 +627,20 @@ async function installedScan(start: Pose, fault = "") {
     } else {
       assert.equal(result.ok, false, fault);
       assert.equal(Object.hasOwn(result, "observation"), false, fault);
-      if (fault === "cleanup" || fault === "restore")
+      if (fault === "roundtrip") {
+        assert.deepEqual(result, { ok: false, code: "restoration_failed" });
+        assert.equal(captures, 3);
+        assert.equal(looks, 5); // normal restoration, then interrupted cleanup
+        assert.equal(clears, 3);
+        assert.equal(f.raw.entity.pitch, -0.09999999999999998);
+        assert.equal(records.at(-1)!.data.code, "execution_error");
+        assert.equal(
+          (records.at(-1)!.data.details as Record<string, unknown>).cleanup,
+          "restoration_failed",
+        );
+        assert.ok(Object.values(f.bot.controlState).every((v) => !v));
+      }
+      if (fault === "cleanup" || fault === "restore" || fault === "roundtrip")
         assert.equal(
           (await runner.runExclusive(100, async () => {})).code,
           "closed",
@@ -672,4 +685,76 @@ test("production installed-camera scanner rejects transformation, state, drift, 
     "cleanup",
   ])
     await installedScan({ yaw: Math.PI, pitch: 0 }, fault);
+});
+
+test("installed camera round trips preserve exact restoration or refuse without publishing terrain", async () => {
+  const evidence: Record<string, unknown>[] = [];
+  for (const pitch of [0, -0.1, -0.35, -0.8, -1]) {
+    const start = Object.freeze({ yaw: Math.PI, pitch });
+    for (const downwardFirst of [false, true]) {
+      let previous: string | undefined;
+      for (let repeat = 0; repeat < 2; repeat++) {
+        const f = fixture(start.yaw, start.pitch);
+        const steps: Record<string, unknown>[] = [];
+        try {
+          const targets = [
+            {
+              yaw: start.yaw,
+              pitch: downwardFirst ? Math.min(-0.8, pitch) : pitch,
+            },
+            {
+              yaw: wrap(start.yaw + (2 * Math.PI) / 3),
+              pitch: Math.max(-1, Math.min(-0.35, pitch)),
+            },
+            {
+              yaw: wrap(start.yaw - (2 * Math.PI) / 3),
+              pitch: Math.max(-1, Math.min(-0.35, pitch)),
+            },
+            start,
+          ];
+          for (const target of targets) {
+            const before = pose(f.bot);
+            await f.bot.look(target.yaw, target.pitch, true);
+            const actual = pose(f.bot);
+            assert.ok(verifiedLookPose(before, target, actual));
+            steps.push({ before, requested: target, actual });
+          }
+          const restored = pose(f.bot);
+          assert.equal(currentGuard(restored, start), pitch !== -0.1);
+          if (pitch === -0.1) {
+            assert.equal(restored.pitch, -0.09999999999999998);
+            // A sub-quantum repeated request cannot repair the lost bits.
+            await f.bot.look(start.yaw, start.pitch, true);
+            assert.deepEqual(pose(f.bot), restored);
+          }
+          assert.deepEqual(start, { yaw: Math.PI, pitch });
+          const record = {
+            original: start,
+            downwardFirst,
+            steps,
+            restored,
+            exactRestoration: currentGuard(restored, start),
+            pitchError: restored.pitch - pitch,
+          };
+          const serialized = JSON.stringify(record);
+          if (previous !== undefined) assert.equal(serialized, previous);
+          previous = serialized;
+          if (repeat === 0) evidence.push(record);
+        } finally {
+          f.dispose();
+        }
+      }
+    }
+    // Real scanner/runner/receipts; only telemetry and terrain are synthetic.
+    await installedScan(start, pitch === -0.1 ? "roundtrip" : "");
+  }
+  mkdirSync("logs", { recursive: true });
+  writeFileSync(
+    "logs/task45-camera-restoration-evidence.json",
+    JSON.stringify(
+      { quantum, classification: "offline installed camera", evidence },
+      null,
+      2,
+    ),
+  );
 });
