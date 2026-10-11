@@ -311,10 +311,9 @@ test("stopped emission, wrong event/emitter and removed listener reproduce zero 
           f.raw.emit("physicsTick");
         }
         await f.step(50, false);
-        if (mode === "removed") break;
       }
       if (mode === "removed") {
-        // Scanner rejected repeated stale timestamps before watchdog expiry.
+        // Equality resets evidence; the removed watchdog still refuses within its bound.
         const result = await scan;
         assert.equal(result.ok, false);
         assert.ok(delivered >= 2);
@@ -425,6 +424,7 @@ test("disconnect/cancellation/stale samples prevent publication; cleanup fault c
       if (mode === "stale") {
         f.raw.emit("physicsTick");
         f.raw.emit("physicsTick");
+        await f.step(800, false);
       }
       if (mode === "cleanup-fault") {
         f.raw.failClear = true;

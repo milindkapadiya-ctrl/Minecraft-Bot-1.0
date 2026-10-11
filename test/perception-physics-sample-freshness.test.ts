@@ -39,6 +39,8 @@ class OfflineBot extends EventEmitter {
   isAlive = true;
   inventory = { slots: [], items: () => [] };
   controlState: Record<string, boolean> = { forward: false };
+  failClear = false;
+  failRestore = false;
   _client = Object.assign(new EventEmitter(), { state: "play", write() {} });
   physics!: {
     simulatePlayer: (...args: unknown[]) => { apply(bot: unknown): void };
@@ -55,12 +57,15 @@ class OfflineBot extends EventEmitter {
     return block;
   }
   clearControlStates() {
+    if (this.failClear) throw Error("test cleanup failure");
     this.controlState.forward = false;
   }
   setControlState() {
     assert.fail("movement forbidden");
   }
   async look(yaw: number, pitch: number) {
+    if (this.failRestore && yaw === 0 && pitch === 0)
+      throw Error("test restoration failure");
     const q = -0.0026179938779913314;
     this.entity.yaw += Math.round((yaw - this.entity.yaw) / q) * q;
     this.entity.pitch += Math.round((pitch - this.entity.pitch) / q) * q;
@@ -111,6 +116,292 @@ function fixture(t: TestContext) {
 }
 const request = { scanId: "freshness-scan", viewId: "view-0" };
 
+test("failed clock read during collision recovery is terminal without reusing the previous timestamp", async (t) => {
+  const f = fixture(t);
+  f.collector.dispose();
+  let clockFailed = false,
+    done = false;
+  const scan = scanNearbyTerrain(f.context, f.runner, {
+    now: () => {
+      if (clockFailed) throw Error("test unavailable clock");
+      return f.now();
+    },
+  });
+  void scan.then(() => {
+    done = true;
+  });
+  await flush();
+  f.emit(1050);
+  f.emit(1050);
+  await flush();
+  clockFailed = true;
+  f.emit(1100);
+  await flush();
+  assert.equal(
+    done,
+    true,
+    "clock failure must not look like another recoverable equality",
+  );
+  assert.equal((await scan).ok, false);
+  assert.equal(f.raw.listenerCount("physicsTick"), 0);
+});
+
+test("collision recovery cannot hide restoration or controller finalization faults", async (t) => {
+  for (const fault of ["restore", "cleanup"] as const)
+    await t.test(fault, async (child) => {
+      const f = fixture(child);
+      f.collector.dispose();
+      let captures = 0;
+      const scan = scanNearbyTerrain(f.context, f.runner, {
+        observe: (b) => {
+          captures++;
+          const cells = observeNearbyTerrain(b);
+          if (captures === 3) {
+            if (fault === "restore") f.raw.failRestore = true;
+            else f.raw.failClear = true;
+          }
+          return cells;
+        },
+      });
+      await flush();
+      f.emit(1050);
+      f.emit(1050);
+      await flush();
+      for (let i = 0; i < 15; i++) {
+        f.emit(1100 + 50 * i);
+        await flush();
+      }
+      const result = await scan;
+      assert.equal(result.ok, false);
+      assert.equal("observation" in result, false);
+      assert.equal(captures, 3);
+      assert.equal(
+        (await f.runner.runExclusive(100, async () => {})).code,
+        "closed",
+      );
+      assert.equal(f.raw.listenerCount("physicsTick"), 0);
+    });
+});
+
+test("collision revokes every old sample/receipt and only five later samples over200ms recover", (t) => {
+  const f = fixture(t);
+  for (let i = 0; i < 5; i++) f.emit(1000 + 50 * i);
+  const old = f.collector.evidence();
+  assert.ok(old);
+  f.emit(1200);
+  f.emit(1200);
+  assert.equal(validateStationarity(old, f.context), false);
+  assert.equal(
+    captureView({ ...f.context, stationarity: old }, request).ok,
+    false,
+  );
+  assert.equal(f.collector.evidence(), undefined);
+  assert.equal(f.raw.listenerCount("physicsTick"), 1);
+  for (const time of [1250, 1300, 1350, 1400]) f.emit(time);
+  assert.equal(
+    f.collector.evidence(),
+    undefined,
+    "four new samples cannot reuse old count/span",
+  );
+  f.emit(1450);
+  const replacement = f.collector.evidence();
+  assert.ok(replacement);
+  assert.equal(replacement.samples, 5);
+  assert.equal(replacement.startedAtMs, 1250);
+  assert.equal(replacement.completedAtMs, 1450);
+  assert.equal(
+    captureView({ ...f.context, stationarity: replacement }, request).ok,
+    true,
+  );
+});
+
+test("collision retains clock high-water mark and terminal safety failures cannot reopen", async (t) => {
+  for (const fault of [
+    "rollback",
+    "nan",
+    "session",
+    "dimension",
+    "xyz",
+    "camera",
+    "ground",
+    "velocity",
+    "health",
+    "water",
+    "cancel",
+  ] as const)
+    await t.test(fault, (child) => {
+      const f = fixture(child),
+        abort = new AbortController();
+      f.collector.dispose();
+      const collector = collectStationarity(f.context, {
+        signal: abort.signal,
+      });
+      child.after(collector.dispose);
+      f.emit(1000);
+      f.emit(1050);
+      f.emit(1050);
+      if (fault === "rollback") f.emit(1049);
+      if (fault === "nan") f.emit(NaN);
+      if (fault === "session") f.session.sessionId = "replacement";
+      if (fault === "dimension") f.raw.game.dimension = "the_nether";
+      if (fault === "xyz") f.raw.entity.position.x += 0.01;
+      if (fault === "camera") f.raw.entity.yaw += 0.01;
+      if (fault === "ground") f.raw.entity.onGround = false;
+      if (fault === "velocity") f.raw.entity.velocity.x = 0.1;
+      if (fault === "health") f.raw.health = 6;
+      if (fault === "water") f.raw.entity.isInWater = true;
+      if (fault === "cancel") abort.abort();
+      if (fault !== "rollback" && fault !== "nan") f.emit(1100);
+      f.session.sessionId = "freshness-session";
+      f.raw.game.dimension = "overworld";
+      f.raw.entity.position.x = 0.5;
+      f.raw.entity.yaw = 0;
+      f.raw.entity.onGround = true;
+      f.raw.entity.velocity.x = 0;
+      f.raw.health = 20;
+      f.raw.entity.isInWater = false;
+      for (let i = 0; i < 6; i++) f.emit(1200 + i * 50);
+      assert.equal(collector.evidence(), undefined);
+      assert.equal(
+        f.raw.listenerCount("physicsTick"),
+        0,
+        "terminal invalidation cannot recover",
+      );
+    });
+});
+
+test("repeated collisions consume original view deadline without listener recreation or extra ownership", async (t) => {
+  const f = fixture(t);
+  f.collector.dispose();
+  let observed = 0;
+  const scan = scanNearbyTerrain(f.context, f.runner, {
+    observe: (b) => {
+      observed++;
+      return observeNearbyTerrain(b);
+    },
+  });
+  await flush();
+  const listeners = f.raw.listenerCount("physicsTick");
+  assert.equal(
+    (
+      await f.runner.run({
+        type: "move",
+        direction: "forward",
+        durationMs: 100,
+        timeoutMs: 100,
+      })
+    ).code,
+    "busy",
+  );
+  for (let i = 1; i <= 30; i++) {
+    f.emit(1000 + i * 50);
+    f.emit(1000 + i * 50);
+    f.timers.tick(50);
+    await flush();
+    if (i < 30) assert.equal(f.raw.listenerCount("physicsTick"), listeners);
+  }
+  const result = await scan;
+  assert.deepEqual(result, { ok: false, code: "readiness_timeout" });
+  assert.equal(observed, 0);
+  assert.equal(f.records.filter((r) => r.event === "action_started").length, 1);
+  assert.equal(f.raw.listenerCount("physicsTick"), 0);
+});
+
+test("each scanner view independently recovers collision without retrying camera or early publication", async (t) => {
+  const f = fixture(t);
+  f.collector.dispose();
+  const initial = { yaw: f.raw.entity.yaw, pitch: f.raw.entity.pitch };
+  let observed = 0,
+    published = false;
+  const scan = scanNearbyTerrain(f.context, f.runner, {
+    observe: (b) => {
+      observed++;
+      return observeNearbyTerrain(b);
+    },
+  });
+  void scan.then(() => {
+    published = true;
+  });
+  await flush();
+  let time = 1000;
+  for (let view = 0; view < 3; view++) {
+    f.emit((time += 50));
+    await flush();
+    f.emit(time);
+    await flush();
+    for (let i = 0; i < 4; i++) {
+      f.emit((time += 50));
+      await flush();
+    }
+    assert.equal(observed, view, "discarded samples cannot advance view");
+    assert.equal(published, false);
+    f.emit((time += 50));
+    await flush();
+    assert.equal(observed, view + 1);
+  }
+  const result = await scan;
+  assert.equal(result.ok, true);
+  if (!result.ok) assert.fail();
+  assert.equal(result.acquisitions.length, 3);
+  for (const acquisition of result.acquisitions) {
+    assert.equal(acquisition.readiness.samples, 5);
+    assert.equal(
+      acquisition.readiness.completedAtMs - acquisition.readiness.startedAtMs,
+      200,
+    );
+  }
+  assert.equal(f.raw.entity.yaw, initial.yaw);
+  assert.equal(f.raw.entity.pitch, initial.pitch);
+  assert.equal(f.records.filter((r) => r.event === "action_started").length, 1);
+  assert.equal(f.raw.listenerCount("physicsTick"), 0);
+  const action = f.records.findLast((r) => r.event === "action_result")!
+    .data as unknown as ActionResult;
+  assert.equal(action.details?.cleanup, "complete");
+});
+
+test("unsafe state at collided timestamp remains terminal and fractional scanner clocks are unsupported", async (t) => {
+  for (const fault of [
+    "ground",
+    "water",
+    "health",
+    "xyz",
+    "camera",
+    "dimension",
+    "session",
+    "cancel",
+    "fraction",
+  ] as const)
+    await t.test(fault, async (child) => {
+      const f = fixture(child);
+      f.collector.dispose();
+      const abort = new AbortController();
+      const scan = scanNearbyTerrain(f.context, f.runner, {
+        signal: abort.signal,
+        ...(fault === "fraction" ? { now: f.now } : {}),
+      });
+      await flush();
+      f.emit(1050);
+      await flush();
+      if (fault === "ground") f.raw.entity.onGround = false;
+      if (fault === "water") f.raw.entity.isInWater = true;
+      if (fault === "health") f.raw.health = 6;
+      if (fault === "xyz") f.raw.entity.position.x += 0.01;
+      if (fault === "camera") f.raw.entity.yaw += 0.01;
+      if (fault === "dimension") f.raw.game.dimension = "the_nether";
+      if (fault === "session") f.session.sessionId = "replacement";
+      if (fault === "cancel") abort.abort();
+      // Default clock floors; explicit trusted seam validates unsupported representation.
+      if (fault === "fraction") {
+        f.emit(1050.1);
+      } else f.emit(1050);
+      await flush();
+      const result = await scan;
+      assert.equal(result.ok, false);
+      assert.equal("observation" in result, false);
+      assert.equal(f.raw.listenerCount("physicsTick"), 0);
+    });
+});
+
 test("sample count and real dispatch span are independent; no simulation-time substitution", async (t) => {
   for (const [label, times, accepted] of [
     ["five over200", [1000, 1050, 1100, 1150, 1200], true],
@@ -157,9 +448,8 @@ test("timestamp provenance is local acquisition time, not event arguments or an 
   // This demonstrates an information limit; it does not establish a replay in Mineflayer.
 });
 
-test("same-time repeated callback, reordered acquisition clock and rollback close the collector", async (t) => {
+test("reordered acquisition clock and rollback close the collector", async (t) => {
   for (const times of [
-    [1000, 1000],
     [1000, 1100, 1050],
     [1000, 999],
     [1000, NaN],
@@ -261,6 +551,9 @@ test("scanner duplicate-time/rollback refusals publish no map; watchdog still bo
       if (mode === "equal") {
         f.emit(1050);
         await flush();
+        f.setTime(2000);
+        f.timers.tick(800);
+        await flush();
       }
       if (mode === "rollback") {
         f.emit(1049);
@@ -279,7 +572,7 @@ test("scanner duplicate-time/rollback refusals publish no map; watchdog still bo
       assert.equal(result.ok, false);
       assert.equal("observation" in result, false);
       assert.equal(observed, 0);
-      if (!result.ok && (mode === "equal" || mode === "rollback"))
+      if (!result.ok && mode === "rollback")
         assert.equal(result.code, "stale_samples");
       const action = f.records.findLast((r) => r.event === "action_result")!
         .data as unknown as ActionResult;
@@ -381,7 +674,7 @@ test("installed catch-up advances independently despite colliding integer acquis
   f.raw.emit("end");
 });
 
-test("installed catch-up reaches default production scanner stale_samples before any capture", async (t) => {
+test("installed catch-up resets default scanner then subsequent fresh views complete", async (t) => {
   const f = fixture(t);
   f.collector.dispose();
   injectPhysics(f.bot, { physicsEnabled: true });
@@ -412,16 +705,18 @@ test("installed catch-up reaches default production scanner stale_samples before
   f.setTime(1250);
   f.timers.tick(50);
   await flush();
-  const result = await scan;
-  assert.deepEqual(result, { ok: false, code: "stale_samples" });
   assert.equal(observed, 0);
+  for (let i = 0; i < 20 && observed < 3; i++) {
+    f.setTime(1300 + i * 50);
+    f.timers.tick(50);
+    await flush();
+  }
+  const result = await scan;
+  assert.equal(result.ok, true);
+  assert.equal(observed, 3);
   const action = f.records.findLast((r) => r.event === "action_result")!
     .data as unknown as ActionResult;
-  assert.equal(
-    action.physicsTicks,
-    3,
-    "all independent generated steps reached actual watchdog",
-  );
+  assert.ok(action.physicsTicks >= 18);
   assert.equal(action.details?.cleanup, "complete");
   f.raw.emit("end");
 });
@@ -453,8 +748,8 @@ test("installed suspended catch-up burst alone cannot manufacture200ms stationar
   assert.equal(collector.evidence(), undefined);
   assert.equal(
     f.raw.listenerCount("physicsTick"),
-    1,
-    "same dispatch timestamp permanently disposed collector",
+    2,
+    "same dispatch timestamp resets without adding or removing listeners",
   );
   f.raw.emit("end");
 });

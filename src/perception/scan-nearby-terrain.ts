@@ -366,8 +366,15 @@ function waitForReceipt(
     const started = now();
     if (!Number.isSafeInteger(started) || started < 0) refuse("invalid_time");
     let last = -Infinity;
+    let sampleTime = started;
     const collector = collectStationarity(context, {
-      now,
+      // One acquisition reading per physics event keeps collector/wait ordering
+      // decisions coherent even when callbacks straddle an integer clock bin.
+      now: () => {
+        // A failed read must not leave an earlier value looking like equality.
+        sampleTime = NaN;
+        return (sampleTime = now());
+      },
       signal: scope.signal,
     });
     const cleanup = () => {
@@ -393,10 +400,14 @@ function waitForReceipt(
     const tick = () => {
       try {
         guard();
-        const time = now();
-        if (!Number.isFinite(time) || time <= last) refuse("stale_samples");
-        last = time;
+        const time = sampleTime;
+        if (!Number.isSafeInteger(time) || time < 0 || time < last)
+          refuse("stale_samples");
         if (time - started >= 1500) refuse("readiness_timeout");
+        // Collector has revoked the entire window. Neither side of equality
+        // starts the replacement; timers and the ordering reference stay fixed.
+        if (time === last) return;
+        last = time;
         if (collector.evidence()) finish();
       } catch (error) {
         finish(error);

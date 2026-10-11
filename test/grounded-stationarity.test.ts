@@ -521,14 +521,22 @@ test("production installed landing displacement is excluded from the five-sample
   f.collector.dispose();
 });
 
-test("production collector rejects replayed clocks and requires elapsed stability time", () => {
+test("production collector discards equal clocks, rejects rollback and requires new elapsed stability", () => {
   const f = productionFixture();
   for (let i = 0; i < 5; i++) f.emit(10);
   assert.equal(f.collector.evidence(), undefined);
   f.emit(0);
-  for (let i = 0; i < 10; i++) f.emit(50);
+  for (let i = 0; i < 4; i++) f.emit(50);
   assert.equal(f.collector.evidence(), undefined);
-  assert.equal(f.raw.listenerCount("physicsTick"), 0);
+  f.emit(50);
+  assert.equal(f.collector.evidence()?.samples, 5);
+  f.collector.dispose();
+  const backwards = productionFixture();
+  backwards.emit(50);
+  backwards.emit(-1);
+  for (let i = 0; i < 5; i++) backwards.emit(50);
+  assert.equal(backwards.collector.evidence(), undefined);
+  assert.equal(backwards.raw.listenerCount("physicsTick"), 0);
   const g = productionFixture();
   for (let i = 0; i < 5; i++) g.emit();
   assert.ok(g.collector.evidence());

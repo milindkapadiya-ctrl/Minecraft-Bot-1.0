@@ -118,7 +118,8 @@ export function collectStationarity(
     generation = 0,
     lastTime = -Infinity,
     count = 0,
-    since = 0;
+    since = 0,
+    recovering = false;
   let previous = { ...bot.entity.position };
   let origin: ReturnType<typeof stationaryState>;
   let evidence: StationaryEvidence | undefined;
@@ -151,28 +152,51 @@ export function collectStationarity(
         current.sessionId !== session.sessionId ||
         !/^[A-Za-z0-9_.:-]{1,64}$/.test(current.sessionId) ||
         !Number.isFinite(time) ||
-        time <= lastTime
+        time < 0 ||
+        time < lastTime ||
+        options.signal?.aborted
       ) {
         dispose();
         return;
       }
-      lastTime = time;
       const p = bot.entity?.position;
       const unchanged =
         p && p.x === previous.x && p.y === previous.y && p.z === previous.z;
       previous = { x: p?.x, y: p?.y, z: p?.z };
       const state = stationaryState(bot);
+      if (time === lastTime) {
+        // Equality cannot authenticate a new observation. Revoke both sides of
+        // the pair and all prior window credit, but retain ordering/pose anchors.
+        if (
+          !state ||
+          !unchanged ||
+          (origin && (!samePose(origin, state) || state.health < origin.health))
+        ) {
+          dispose();
+          return;
+        }
+        count = 0;
+        since = 0;
+        origin ??= state;
+        recovering = true;
+        return;
+      }
+      lastTime = time;
       if (
         !state ||
         !unchanged ||
         options.eligible?.() === false ||
         (origin && (!samePose(origin, state) || state.health < origin.health))
       ) {
+        if (recovering) {
+          dispose();
+          return;
+        }
         count = 0;
         origin = null;
         return;
       }
-      if (!origin) {
+      if (!origin || count === 0) {
         origin = state;
         since = time;
       }
@@ -208,6 +232,7 @@ export function collectStationarity(
         },
       });
       evidence = token;
+      recovering = false;
     } catch {
       dispose();
     }
