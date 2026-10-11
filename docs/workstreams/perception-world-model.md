@@ -1,5 +1,61 @@
 # Ethan — Perception & World Model
 
+## Task 29 offline camera compatibility investigation — 2026-10-10
+
+Authorized investigation/tests/proposal only. Verified clean `ethan-perception` at `4edfa0df021f39ec0b89d6208abfd21897719861`, no merge/rebase and unchanged committed Task27/scanner source; installed Mineflayer4.39.0. Read-only GitHub check confirms PR#4 remains open/unmerged at reviewed `ac9e4eff6955b6a01f6f9697333dbd9e5567331b`; its merge_commit_sha is not evidence of a completed merge. Task28 returned READY TO MERGE for that controller correction, but separately reproduced first-capture-then-unexpected_camera refusal. No synchronization or production change here. Task26's original live exception remains unavailable; camera findings are offline evidence.
+
+**Localized cause:** scanner `src/perception/scan-nearby-terrain.ts:166–177` requests relative +120/-120 degree yaw and bounded downward pitch, awaits ownedLook, sets expected to the requested angles and immediately invokes guard. At119–122 guard compares normalized yaw and raw pitch exactly; it refuses unexpected_camera **after look and before the next stationary receipt is collected**. The first view uses the original pose and succeeds in the isolated installed-controller reproduction. Both yaw arithmetic differences and pitch sensitivity rounding make the second-view comparison fail. No completed map is published.
+
+### Existing pose contracts
+
+| Check                          | Current behavior                                                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Initial scanner camera         | Actual stationary snapshot copied; expected is that initial yaw/pitch                                                          |
+| Scanner guard119–122           | Exact equality after modulo2π yaw normalization; exact raw pitch; no angular-distance tolerance                                |
+| Post-look176–177               | Expected becomes requested pose, not actual local pose; immediate guard precedes readiness                                     |
+| Stationarity samePose89–100    | Copied actual pose; exact raw yaw/pitch and XYZ, plus entity/dimension/height                                                  |
+| Stationarity collector/receipt | Five fresh grounded unchanged samples spanning200ms, actual pose snapshot; exact pose/session checks, single use and age<100ms |
+| Capture endpoint96–100         | Exact actual before/after yaw/pitch/XYZ; receipt rechecked; actual pose retained in CapturedView provenance                    |
+| Normal restoration227–232      | Request original camera; guard expects original pose exactly, normalized yaw                                                   |
+| Interrupted restoration270–276 | Owned restoreLook; exact original normalized yaw/raw pitch or restoration_failed                                               |
+| Final scanner handoff324–325   | Exact original/completed normalized yaw and pitch plus identity/state/XYZ rechecks                                             |
+
+Thus receipt/capture already bind the actual camera; replacing their exact checks with a tolerance is unnecessary and would accept unexplained drift. Requested camera validation is the localized incompatible boundary.
+
+### Installed implementation and measurements
+
+Actual installed physics.js331–360 implements local `look`: computes `q = conversions.fromNotchianPitch(0.15)`, then `Math.round((requested-current)/q)*q` independently for yaw/pitch and adds each delta to entity orientation. Evaluated q is **-0.0026179938779913314 radians**. Its sign comes from pitch conversion; the conversion wraps throughπ then subtractsπ, so it is not bit-identical to algebraic -π/1200. This explains tiny errors even for nominal120-degree turns. No yaw wrapping or pitch clamping/finite validation occurs in local look itself. Perception/controller must retain their validity gates.
+
+With force=true, local orientation changes synchronously and the Promise returns without waiting for a physics tick or server acknowledgment. lastSentYaw/Pitch are assigned requested values, while entity pose contains rounded values. Nonforce look awaits a task tied to movement/update handling; a later look can finish the prior task. This is not a camera-stability guarantee. Separately, physics.js outbound updates use Math.fround on degree conversions, and incoming player_rotation/position apply conversions including relative flags and normalization. Offline player_rotation events exercise the installed conversion handler, not a real packet exchange. Local rounding alone reproduces the mismatch with no network/timer, so protocol float quantization or stale reads are not required explanations.
+
+All values below are radians, actual installed local calls on fake own-state telemetry:
+
+| From yawπ/pitch0       | Requested yaw      | Observed yaw      | Shortest yaw difference | Requested/observed pitch    | Pitch difference       |
+| ---------------------- | ------------------ | ----------------- | ----------------------- | --------------------------- | ---------------------- |
+| +120                   | 5.235987755982988  | 5.235987755982858 | -1.2967404927621828e-13 | -0.35 / -0.3508111796508384 | -0.0008111796508384339 |
+| -120, after first turn | 1.0471975511965983 | 1.047197551196728 | 1.2967404927621828e-13  | -0.35 / -0.3508111796508384 | -0.0008111796508384339 |
+| Restore                | 3.141592653589793  | 3.141592653589793 | 0                       | 0 / 0                       | 0                      |
+
+45 measurements cover five initial poses (π/0,0/0, near+π/-0.8, near-π/0, near2π/-1), both relative turns and restoration, repeated three times. Sample maxima: shortest yaw **5.204725539442734e-13**, pitch **0.0008111796508384339**. Every sampled restoration passes the current strict original-pose comparison. Raw and wrapped differences, requests, actuals, guard outcomes and stability are retained in ignored `logs/task29-camera-evidence.json`; no historical log overwrite. These are sample maxima, not universal tolerances. Source rounding suggests a half-step bound in ideal arithmetic (~0.001308996939 radians), but it is not used as a safety threshold. Yaw normalization alone cannot fix pitch or nonzero normalized yaw mismatch. Local poses were identical immediately, after await and after setImmediate; no delayed local settling in these force-look samples. Real server corrections remain unvalidated.
+
+### Smallest correction proposal, not implemented
+
+Prefer **verify then bind actual post-look pose** over a global tolerance: snapshot valid pre-look state, request the existing camera pattern through the shared owned scope, await it and recheck cancellation, owner/session/bot/entity/dimension/XYZ/health/environment. Verify actual yaw/pitch against the **pinned installed rounding model** computed from that pre-look pose and request (exact normalized yaw/exact pitch); reject stale/no-op results where a nonzero model delta was required, invalid orientation and any unexplained offset. Only then replace the scanner's expected pose with a copy of the verified actual pose. Collect the existing five fresh samples and consume the existing actual-pose receipt. No model allowance applies to later drift, readiness or capture. Test-only candidate reproduces this boundary rule and rejects deviations of1e-12 as well as larger yaw/pitch changes.
+
+Keep original-pose restoration and final handoff checks strict; all tested round trips satisfy them. If another initial pose cannot restore exactly, refuse rather than weakening restoration. Do not extend receipts/deadlines, change view geometry or accept a raw post-look snapshot without checking its relationship to the authorized request. A normalized-distance-only rule is insufficient; a half-step global tolerance could swallow real motion; a fresh stable window alone could legitimize the wrong stable pose. Existing window should follow model validation, not replace it. Exact camera fakes remain a baseline for current source; future integration fakes must model the installed behavior rather than adding a second production allowance solely for tests.
+
+**Implementation readiness:** suitable for one reviewed Perception-only iteration, not proven end-to-end as a fixed scanner. Anticipated changes: scanner and focused tests, with a small Perception-owned helper only if needed. No shared API/ActionRunner modification appears necessary. Pin/version checks and the exact arithmetic model need technical-lead/HQ review before implementing this newly accepted camera boundary; no shared ownership bypass. Will's reviewed correction must be merged and safely integrated under a separately assigned task before authoritative integrated validation. An isolated review clone can validate against the exact PR without claiming it is merged.
+
+### Offline validation and remaining limits
+
+New `test/perception-camera-compatibility.test.ts`: **10 groups** execute actual installed look on EventEmitter/Vec3/registry fake telemetry; no createBot/login/socket/physics timer/world access. Only exact-camera comparison is faked; the candidate is test-only, and 245 unknown cells are synthetic capture output. Tests cover measured turns/wrapping/restoration/no-op differences, predicted post-look validation, actual receipt binding/single use, tiny/large drift, NaN/infinite/out-of-range state, session/position change across await, four-versus-five samples, exact camera changes during capture, expiry/cancellation and installed nonforce/conversion semantics. Existing scanner/controller tests supply canceled/expired look, delayed settlement, restoration/fault/no-partial-map and overlap coverage.
+
+Authoritative focused run: **87/87** (new10, existing scanner21, stationarity/capture/controller56), plus typecheck/build. Command: `node --test dist/test/perception-camera-compatibility.test.js dist/test/scan-nearby-terrain.test.js dist/test/grounded-stationarity.test.js dist/test/capture-view.test.js dist/test/actions.test.js`. No full suite rerun; production unchanged. Scoped test/handoff formatting and git diff --check pass; existing RESUME/ROADMAP formatting warnings remain.
+
+The preserved Task28 temporary clone at ac9e4ef, with unchanged published scanner/capture/stationarity modules and review-only adapted Task27 fixtures, also passed **67/67** camera8/controller24/scanner21/adapted14 tests with typecheck/build. Its installed-look integration reaches one capture then refuses unexpected_camera; exact fake camera plus installed clearing completes three views. The last two new standalone groups subsequently passed in the authoritative87 run; they were not rerun in that clone. Neither run implements/tests the proposed scanner correction end-to-end or proves live protocol compatibility.
+
+Only new test and Ethan handoff/RESUME/ROADMAP changed; production, shared docs, Navigation, Surface Recovery, dependencies and historical evidence untouched. No Minecraft execution, merge, commit/push or branch operation. **Next ONE task:** authorize the Perception verify-and-bind correction with installed-camera integration and strict restoration regressions, after lead/HQ review of this rule and explicit controller integration prerequisites. No live authorization; stop for Ethan/technical lead.
+
 ## Task 27 offline controller failure investigation — 2026-10-10
 
 HQ explicitly authorized offline evidence review, installed API inspection, reproduction tests and handoff; no shared or Perception production fix or live retry. Verified `ethan-perception`, HEAD `bb2981f427f4cc84f3ad579ea7a5900ab7eb8623`, the three expected Task25/26 documentation edits and no merge/rebase/conflict. Preserved those entries. Only this handoff, RESUME, ROADMAP and `test/perception-controller-cleanup.test.ts` changed. No Minecraft/server/bot execution, world inspection, dependency/runtime change, commit/push or branch operation.
