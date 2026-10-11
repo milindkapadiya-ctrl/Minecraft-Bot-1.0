@@ -32,7 +32,6 @@ export function movementConsole(bot: Bot, log: Log, stop: () => void) {
     const command = args[0];
     if (command === "cancel" && args.length === 1) {
       sequence?.abort();
-      runner.cancel();
       log("demo_cancelled");
       return;
     }
@@ -121,7 +120,6 @@ export function movementConsole(bot: Bot, log: Log, stop: () => void) {
   input.on("close", stop);
   return () => {
     sequence?.abort();
-    runner.close();
     disposeTrace();
     input.removeAllListeners();
     input.close();
