@@ -98,7 +98,15 @@ Task 9 supersedes Task 4's permissive stationary-water/airborne snapshot behavio
 
 Offline integration tests exercise production observer/capture/merger together, original evidence and UUID/timing identity, one view, unknown-only output, contradictory/malformed evidence refusal, pose/session/respawn/abort faults, structured output, safe cleanup and merger failure. Live validation remains pending explicit exclusive shared server/world and SurvivalBot ownership plus approved runtime/world selection. The source checkout is not a newly authorized world. Once authorized, use the existing launcher for one bounded attempt only; no retries, navigation or multi-view scanning. Will's reviewed/merged shared controller remains a dependency for later camera scanning, not for this isolated read-only single-view adapter.
 
-## Fresh stationary acquisition — Task 21A (current contract)
+## Completed stationary scan — Task 21B
+
+`scanNearbyTerrain(context, runner, options?)` composes the existing collector, captureView, observer and merger inside one canonical runExclusive operation. Trusted context supplies lifecycle identity and own-air reading; runner must be that bot's existing canonical controller. Each view uses five fresh grounded exact-position observations over 200 ms, a new 100 ms receipt and 1500 ms maximum readiness. The operation has a 5000 ms deadline plus the controller's 500 ms interrupted cleanup bound. Initial state must already be safe/dry/grounded/initialized; this is not spawn recovery.
+
+View0 uses the actual initial camera. Views1/2 use relative yaw +120/-120 degrees with initial pitch clamped to [-1,-0.35] radians. Camera restoration uses owned look/restoreLook. No raw controls are issued. Success waits for release/cleanup and final state validation; cancellation/faults return no terrain. Pending-look restoration can be unavailable, which fails closed through the canonical controller.
+
+Success returns complete, scan/session/dimension/initial-pose identity, acquisition interval, per-view acquisition/readiness intervals/counts and existing merged cells/views/provenance/captureWindow. Unknown/conflicts remain unsafe. This is historical evidence, with no continuing freshness promise. PlanRequest still accepts KnownCell[]; Will's composition checks metadata and requests a new scan after movement before the second segment. This checkout has no production route bridge and none is added here. No persistent map or shared Navigation DTO is introduced. See [Task21B handoff](workstreams/perception-world-model.md#task-21b-completed-stationary-scanner--2026-10-10) for offline evidence and live checks.
+
+## Fresh stationary acquisition — Task 21A
 
 This supersedes Task 8's endpoint-only admission and the earlier diagnostic total-speed gate. CaptureContext additionally requires stationarity, an opaque receipt from collectStationarity in src/perception/stationarity.ts. It is Perception-local; KnownCell, CapturedView and shared controller/navigation contracts are unchanged. Missing/forged/reused evidence returns invalid_context before terrain reads.
 
