@@ -60,12 +60,17 @@ class FakeBot extends EventEmitter {
   setControlState() {
     assert.fail("movement command");
   }
+  // Fake camera models the installed sensitivity arithmetic; ownership is real.
   async look(yaw: number, pitch: number) {
     if (!this.allowCamera) assert.fail("camera command");
     this.looks.push({ yaw, pitch });
     if (this.hangLook) await new Promise(() => {});
-    this.entity.yaw = yaw;
-    this.entity.pitch = pitch;
+    this.entity.yaw +=
+      Math.round((yaw - this.entity.yaw) / -0.0026179938779913314) *
+      -0.0026179938779913314;
+    this.entity.pitch +=
+      Math.round((pitch - this.entity.pitch) / -0.0026179938779913314) *
+      -0.0026179938779913314;
   }
   dig() {
     assert.fail("interaction command");

@@ -16,6 +16,7 @@ import { GROUNDED_GRAVITY_RESIDUAL } from "../src/perception/stationarity.js";
 import { planRoute } from "../src/navigation/planner.js";
 import type { OwnAir } from "../src/minecraft/air-compat.js";
 const require = createRequire(import.meta.url);
+const depsForCamera = require("mineflayer/lib/conversions.js");
 const { Vec3 } = createRequire(require.resolve("mineflayer"))("vec3");
 
 class ScanBot extends EventEmitter {
@@ -50,12 +51,18 @@ class ScanBot extends EventEmitter {
   setControlState() {
     assert.fail("movement issued");
   }
+  // Fake camera models the installed sensitivity arithmetic; ownership is real.
   async look(yaw: number, pitch: number) {
     this.looks.push({ yaw, pitch });
     await this.lookHook(this.looks.length);
-    this.entity.yaw =
-      yaw + (this.mismatchRestoration && this.looks.length >= 3 ? 0.001 : 0);
-    this.entity.pitch = pitch;
+    this.entity.yaw +=
+      Math.round((yaw - this.entity.yaw) / -0.0026179938779913314) *
+      -0.0026179938779913314;
+    if (this.mismatchRestoration && this.looks.length >= 3)
+      this.entity.yaw += 0.001;
+    this.entity.pitch +=
+      Math.round((pitch - this.entity.pitch) / -0.0026179938779913314) *
+      -0.0026179938779913314;
   }
   blockAt(p: { y: number }) {
     this.reads++;
@@ -231,8 +238,11 @@ test("camera pattern is relative and bounded even at vertical initial pitch; gro
     await f.drive(scanNearbyTerrain(f.context, f.runner, f.options)),
   );
   assert.equal(r.observation.views[0]!.pose.pitch, Math.PI / 2);
-  assert.equal(r.observation.views[1]!.pose.pitch, -0.35);
-  assert.equal(r.observation.views[2]!.pose.pitch, -0.35);
+  const increment = depsForCamera.fromNotchianPitch(0.15);
+  const actualPitch =
+    Math.PI / 2 + Math.round((-0.35 - Math.PI / 2) / increment) * increment;
+  assert.equal(r.observation.views[1]!.pose.pitch, actualPitch);
+  assert.equal(r.observation.views[2]!.pose.pitch, actualPitch);
   assert.ok(f.raw.looks.every((p) => p.yaw >= 0 && p.yaw < 2 * Math.PI));
   f.clean();
 });

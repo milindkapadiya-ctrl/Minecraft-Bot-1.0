@@ -3,6 +3,7 @@ import { performance } from "node:perf_hooks";
 import type { ActionRunner, ExclusiveContext } from "../actions/runner.js";
 import type { OwnAir } from "../minecraft/air-compat.js";
 import { captureView } from "./capture-view.js";
+import { verifiedLookPose } from "./camera-pose.js";
 import {
   mergeObservations,
   type CapturedView,
@@ -163,6 +164,7 @@ export async function scanNearbyTerrain(
         const wait = () => waitForReceipt(context, scope, now, guard, refuse);
         for (let i = 0; i < 3; i++) {
           if (i > 0) {
+            const beforeLook = guard().pose;
             const yaw = wrap(
               initial.pose.yaw + ((i === 1 ? 1 : -1) * 2 * Math.PI) / 3,
             );
@@ -170,10 +172,15 @@ export async function scanNearbyTerrain(
             turning = true;
             try {
               await ownedLook(scope, yaw, pitch);
+              // Turning exempts only the camera expectation. guard still checks
+              // the owned scope, lifecycle/session, exact XYZ and safe state.
+              const actual = guard().pose;
+              if (!verifiedLookPose(beforeLook, { yaw, pitch }, actual))
+                refuse("unexpected_camera");
+              expected = { yaw: actual.yaw, pitch: actual.pitch };
             } finally {
               turning = false;
             }
-            expected = { yaw, pitch };
             guard();
           }
           const acquired = await wait();

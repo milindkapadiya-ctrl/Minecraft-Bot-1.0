@@ -4,6 +4,9 @@ import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import { mkdirSync, writeFileSync } from "node:fs";
 import type { Bot } from "mineflayer";
+import { ActionRunner } from "../src/actions/runner.js";
+import { scanNearbyTerrain } from "../src/perception/scan-nearby-terrain.js";
+import { verifiedLookPose } from "../src/perception/camera-pose.js";
 import {
   collectStationarity,
   validateStationarity,
@@ -77,7 +80,9 @@ function candidate(before: Pose, request: Pose, actual: Pose) {
       before.pitch +
       Math.round((request.pitch - before.pitch) / quantum) * quantum,
   };
-  return currentGuard(actual, expected);
+  const accepted = currentGuard(actual, expected);
+  assert.equal(verifiedLookPose(before, request, actual), accepted);
+  return accepted;
 }
 const measurements: Record<string, unknown>[] = [];
 
@@ -478,4 +483,193 @@ test("installed look itself does not validate or clamp invalid caller angles; Pe
       f.dispose();
     }
   }
+});
+
+async function installedScan(start: Pose, fault = "") {
+  const f = fixture(start.yaw, start.pitch);
+  let time = 0,
+    sessionId = "installed-scan",
+    looks = 0,
+    clears = 0,
+    captures = 0,
+    done = false,
+    injected = false;
+  const abort = new AbortController();
+  const actualLooks: Pose[] = [],
+    captured: Pose[] = [];
+  const look = f.bot.look.bind(f.bot),
+    clear = f.bot.clearControlStates.bind(f.bot);
+  f.bot.look = async (yaw, pitch, force) => {
+    looks++;
+    if (fault === "stale" && looks === 1) return;
+    await look(yaw, pitch, force);
+    if (looks === 1) {
+      if (fault === "yaw") f.raw.entity.yaw += 1e-12;
+      if (fault === "pitch") f.raw.entity.pitch += 1e-12;
+      if (fault === "wrong") f.raw.entity.pitch = pitch;
+      if (fault === "NaN") f.raw.entity.yaw = NaN;
+      if (fault === "infinite") f.raw.entity.pitch = Infinity;
+      if (fault === "position") f.raw.entity.position.x += 0.001;
+      if (fault === "ground") f.raw.entity.onGround = false;
+      if (fault === "health") f.raw.health = 5;
+      if (fault === "water") f.raw.entity.isInWater = true;
+      if (fault === "session") sessionId = "replacement";
+      if (fault === "dimension") f.raw.game.dimension = "the_nether";
+      if (fault === "cancel") abort.abort();
+    }
+    if (fault === "restore" && looks === 3) f.raw.entity.yaw += 1e-12;
+    actualLooks.push(pose(f.bot));
+  };
+  f.bot.clearControlStates = () => {
+    clear();
+    clears++;
+    if (fault === "cleanup" && clears > 1)
+      throw Error("synthetic cleanup fault");
+  };
+  const records: { event: string; data: Record<string, unknown> }[] = [];
+  const runner = new ActionRunner(f.bot, (event, data = {}) =>
+    records.push({ event, data }),
+  );
+  try {
+    const pending = scanNearbyTerrain(
+      {
+        readSession: () => ({ bot: f.bot, sessionId, active: true }),
+        readAir: () => ({ status: "unknown", raw: null, oxygen: null }),
+      },
+      runner,
+      {
+        now: () => time,
+        signal: abort.signal,
+        observe: () => {
+          captures++;
+          captured.push(pose(f.bot));
+          assert.throws(
+            () => f.bot.setControlState("forward", true),
+            /control_ownership/,
+          );
+          if (fault === "capture" && captures === 2)
+            f.raw.entity.pitch += 1e-12;
+          return cells();
+        },
+      },
+    );
+    void pending.then(() => {
+      done = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    for (let i = 0; i < 80 && !done; i++) {
+      if (fault === "readiness" && looks === 1 && !injected) {
+        f.raw.entity.yaw += 1e-12;
+        injected = true;
+      }
+      if (!done)
+        assert.equal(
+          (await runner.runExclusive(100, async () => {})).code,
+          "busy",
+        );
+      time += 50;
+      f.raw.emit("physicsTick");
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    const result = await pending;
+    if (!fault) {
+      assert.ok(result.ok);
+      if (result.ok) {
+        assert.equal(result.observation.views.length, 3);
+        assert.equal(result.observation.cells.length, 245);
+        assert.ok(
+          result.observation.cells.every((c) => c.terrain === "unknown"),
+        );
+        assert.equal(result.sessionId, "installed-scan");
+        assert.equal(result.dimension, "overworld");
+        assert.deepEqual(result.pose, {
+          position: { x: 0.5, y: 64, z: 0.5 },
+          ...start,
+        });
+        for (let i = 0; i < 3; i++) {
+          const acquisition: {
+            readiness: {
+              samples: number;
+              completedAtMs: number;
+              startedAtMs: number;
+            };
+          } = result.acquisitions[i]!;
+          assert.equal(acquisition.readiness.samples, 5);
+          assert.equal(
+            acquisition.readiness.completedAtMs -
+              acquisition.readiness.startedAtMs,
+            200,
+          );
+          assert.deepEqual(
+            {
+              yaw: result.observation.views[i]!.pose.yaw,
+              pitch: result.observation.views[i]!.pose.pitch,
+            },
+            captured[i],
+          );
+          if (i > 0) assert.deepEqual(captured[i], actualLooks[i - 1]);
+        }
+        assert.equal(
+          new Set(result.observation.views.map((v) => v.viewId)).size,
+          3,
+        );
+      }
+      assert.equal(captures, 3);
+      assert.equal(looks, 3);
+      assert.equal(clears, 3);
+      assert.ok(currentGuard(pose(f.bot), start));
+      assert.equal(
+        records.filter((r) => r.event === "action_started").length,
+        1,
+      );
+      assert.equal(records.at(-1)!.data.code, "ok");
+      assert.equal((await runner.runExclusive(100, async () => {})).code, "ok");
+    } else {
+      assert.equal(result.ok, false, fault);
+      assert.equal(Object.hasOwn(result, "observation"), false, fault);
+      if (fault === "cleanup" || fault === "restore")
+        assert.equal(
+          (await runner.runExclusive(100, async () => {})).code,
+          "closed",
+        );
+    }
+    return result;
+  } finally {
+    runner.close();
+    f.dispose();
+  }
+}
+
+test("production scanner completes three installed-camera views, genuine fresh receipts and strict restoration", async () => {
+  for (const start of [
+    { yaw: Math.PI, pitch: 0 },
+    { yaw: 0, pitch: 0 },
+    { yaw: Math.PI - 1e-12, pitch: -0.8 },
+    { yaw: -Math.PI + 1e-12, pitch: 0 },
+    { yaw: 2 * Math.PI - 1e-12, pitch: -1 },
+  ])
+    await installedScan(start);
+});
+
+test("production installed-camera scanner rejects transformation, state, drift, cancellation and cleanup faults", async () => {
+  for (const fault of [
+    "yaw",
+    "pitch",
+    "wrong",
+    "stale",
+    "NaN",
+    "infinite",
+    "position",
+    "ground",
+    "health",
+    "water",
+    "session",
+    "dimension",
+    "cancel",
+    "readiness",
+    "capture",
+    "restore",
+    "cleanup",
+  ])
+    await installedScan({ yaw: Math.PI, pitch: 0 }, fault);
 });

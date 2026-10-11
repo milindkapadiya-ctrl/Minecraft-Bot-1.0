@@ -163,36 +163,31 @@ test("installed active sprint state can need entity/transport; uninitialized sta
   bot.emit("end");
 });
 
-test("real installed clear with stationary ownership fails on nested false setter before callback", async () => {
+// Task27's historical failure remains in commit4edfa0d and its evidence log.
+// SHARED-02 must now resolve the exact installed nested-setter mechanism.
+test("installed stationary clearing now enters callback and completes all three clears", async () => {
   const f = fixture(true);
   try {
     let entered = false;
     const result = await f.runner.runExclusive(500, async () => {
       entered = true;
     });
-    assert.equal(entered, false);
-    assert.equal(result.code, "execution_error");
-    assert.equal(result.details?.cleanupOperation, "clearControlStates");
-    assert.equal(result.details?.cleanup, "failed");
+    assert.equal(entered, true);
+    assert.equal(result.code, "ok");
+    assert.equal(result.details?.cleanup, "complete");
     assert.equal(f.calls(), 3);
-    const errors = f.trace.filter((t) => t.operation === "clear_throw");
-    assert.equal(errors.length, 3);
-    for (const error of errors) {
-      assert.equal(error.message, "stationary_owner_cannot_move");
-      assert.match(error.stack!, /control-ownership\.js/);
-      assert.match(error.stack!, /physics\.js/);
-    }
-    const next = await admission(f);
-    assert.equal(next, "closed");
-    assert.equal(f.bot.packets.length, 0);
-    assert.equal("message" in result, false);
     assert.equal(
-      JSON.stringify(result).includes("stationary_owner_cannot_move"),
-      false,
+      f.trace.filter((t) => t.operation === "clear_throw").length,
+      0,
     );
+    assert.equal(f.bot.controlState.forward, false);
+    const trace = [...f.trace];
+    const next = await admission(f);
+    assert.equal(next, "ok");
+    assert.equal(f.bot.packets.length, 0);
     evidence.push({
-      scenario: "installed_primary_then_cleanup",
-      trace: f.trace,
+      scenario: "installed_clear_corrected",
+      trace,
       result,
       admission: next,
     });
@@ -346,11 +341,13 @@ test("cancel and simulated disconnect preserve bounded controller lifecycle in f
   }
 });
 
-test("production scanner with real installed clear publishes no map after ownership cleanup failure", async () => {
-  const f = fixture(true);
+test("production scanner publishes no map after genuine installed cleanup failure", async () => {
+  const f = fixture(true, (n) => n > 1);
   try {
-    let observations = 0;
-    const result = await scanNearbyTerrain(
+    let observations = 0,
+      time = 0,
+      done = false;
+    const pending = scanNearbyTerrain(
       {
         readSession: () => ({
           bot: f.bot as unknown as import("mineflayer").Bot,
@@ -361,14 +358,30 @@ test("production scanner with real installed clear publishes no map after owners
       },
       f.runner,
       {
+        now: () => time,
         observe: () => {
           observations++;
-          return [];
+          const cells: import("../src/navigation/planner.js").KnownCell[] = [];
+          for (let x = -3; x <= 3; x++)
+            for (let y = 63; y <= 67; y++)
+              for (let z = -3; z <= 3; z++)
+                cells.push({ x, y, z, terrain: "unknown" });
+          return cells;
         },
       },
     );
+    void pending.then(() => {
+      done = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    for (let i = 0; i < 80 && !done; i++) {
+      time += 50;
+      f.bot.emit("physicsTick");
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    const result = await pending;
     assert.deepEqual(result, { ok: false, code: "execution_error" });
-    assert.equal(observations, 0);
+    assert.equal(observations, 3);
     assert.equal(await admission(f), "closed");
   } finally {
     f.dispose();
@@ -379,7 +392,7 @@ test("save only test-local synthetic primary/cleanup stacks, leaving original li
   assert.equal(evidence.length, 4);
   mkdirSync("logs", { recursive: true });
   writeFileSync(
-    "logs/task27-controller-evidence.json",
+    "logs/task30-controller-evidence.json",
     JSON.stringify(evidence, null, 2),
   );
 });
