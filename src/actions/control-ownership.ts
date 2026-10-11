@@ -4,6 +4,7 @@ import type { Bot } from "mineflayer";
 interface Owner {
   valid: boolean;
   stationary: boolean;
+  clearing?: boolean | undefined;
 }
 const context = new AsyncLocalStorage<Owner>();
 const protectedMethods = new WeakMap<Bot, Set<string>>();
@@ -64,14 +65,24 @@ export function protectControls(bot: Bot) {
         throw new Error("control_ownership_required");
       if (
         owner?.stationary &&
-        !["look", "lookAt", "clearControlStates"].includes(name)
+        !["look", "lookAt", "clearControlStates"].includes(name) &&
+        !(name === "setControlState" && owner.clearing && args[1] === false)
       )
         throw new Error("stationary_owner_cannot_move");
-      return Reflect.apply(
-        original as (...args: unknown[]) => unknown,
-        bot,
-        args,
-      );
+      // Mineflayer's synchronous clear calls the guarded setControlState for
+      // each false input. Permit only those resets within the valid owner's
+      // clear call; activation and delayed callbacks retain normal restrictions.
+      const previous = owner?.clearing;
+      if (owner && name === "clearControlStates") owner.clearing = true;
+      try {
+        return Reflect.apply(
+          original as (...args: unknown[]) => unknown,
+          bot,
+          args,
+        );
+      } finally {
+        if (owner && name === "clearControlStates") owner.clearing = previous;
+      }
     };
     // Mineflayer replaces stopDigging during each dig; keep that implementation
     // behind the same guard and accept replacement only by its current owner.
