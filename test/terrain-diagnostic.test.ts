@@ -120,7 +120,7 @@ function motionEvidence(f: ReturnType<typeof setup>) {
   assert.equal(failure.observerInvoked, false);
   assert.equal(f.calls(), 0);
   assert.equal(f.bot.quits, 1);
-  assert.equal(f.bot.cleared, 1);
+  assert.equal(f.bot.cleared, 0);
   assert.equal(f.bot.listenerCount("physicsTick"), 0);
   assert.equal(JSON.stringify(failure).includes("SECRET"), false);
   assert.equal("counts" in failure, false);
@@ -169,7 +169,8 @@ test("initial cumulative movement is distinct from final grounded drift", async 
   f.bot.entity.position.y -= 0.03;
   f.bot.entity.onGround = true;
   f.bot.entity.velocity.y = 0;
-  for (let i = 0; i < 5; i++) f.bot.emit("physicsTick");
+  // Landing displacement is excluded; five unchanged samples must follow it.
+  for (let i = 0; i < 6; i++) f.bot.emit("physicsTick");
   assert.equal((await f.result).exitCode, 0);
   const p = f.records.find((r) => r.event === "terrain_diagnostic_observation")!
     .data.preflight as { readiness: { cumulativeVertical: number } };
@@ -296,7 +297,7 @@ test("initially ungrounded cancellation, disconnect, water and damage stop delay
     f.bot.emit("physicsTick");
     assert.equal((await f.result).exitCode, 1);
     assert.equal(f.calls(), 0);
-    assert.equal(f.bot.cleared, 1);
+    assert.equal(f.bot.cleared, 0);
     f.bot.entity.onGround = true;
     f.bot.entity.velocity.y = 0;
     for (let i = 0; i < 8; i++) f.bot.emit("physicsTick");
@@ -352,7 +353,7 @@ test("entity replacement and health loss after apparent readiness cannot publish
         .captureInvoked,
       false,
     );
-    assert.equal(f.bot.cleared, 1);
+    assert.equal(f.bot.cleared, 0);
     assert.equal(
       f.records.some((r) => r.event === "terrain_diagnostic_observation"),
       false,
@@ -372,7 +373,7 @@ test("fresh identical position samples are valid while incomplete grounding hits
   motionEvidence(ungrounded);
 });
 
-test("installed 26.1 physics keeps grounded gravity velocity unsafe under total-speed contract", async () => {
+test("installed 26.1 grounded gravity residual completes production readiness and capture", async () => {
   const { Physics, PlayerState } = deps("prismarine-physics");
   const Block = deps("prismarine-block")(registry);
   const f = setup({ ticks: false });
@@ -409,15 +410,23 @@ test("installed 26.1 physics keeps grounded gravity velocity unsafe under total-
   f.bot.emit("physicsTick");
   assert.equal(f.bot.entity.onGround, false);
   assert.ok(Math.abs(f.bot.entity.velocity.y + 0.0784000015258789) < 1e-12);
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 5; i++) {
     physics
       .simulatePlayer(new PlayerState(f.bot, controls), world)
       .apply(f.bot);
     f.bot.emit("physicsTick");
   }
   assert.equal(f.bot.entity.onGround, true);
-  assert.equal((await f.result).reason, "stationarity_timeout");
-  assert.equal(motionEvidence(f).stableChecks, 0);
+  assert.equal((await f.result).exitCode, 0);
+  assert.equal(f.calls(), 1);
+  const summary = f.records.find(
+    (r) => r.event === "terrain_diagnostic_observation",
+  )!.data;
+  assert.equal(
+    (summary.preflight as { motion: { stableChecks: number } }).motion
+      .stableChecks,
+    5,
+  );
 });
 
 test("passive residual motion can settle only after five stationary checks spanning 200ms", async () => {
@@ -545,7 +554,7 @@ test("health deterioration, disconnect and cancellation abort while settling", a
     if (fault === "cancel") controller.abort();
     assert.equal((await f.result).exitCode, 1);
     assert.equal(f.calls(), 0);
-    assert.equal(f.bot.cleared, 1);
+    assert.equal(f.bot.cleared, 0);
     if (fault !== "disconnect") motionEvidence(f);
   }
 });
@@ -578,7 +587,7 @@ test("one real observer call produces bounded actual-start summary and disconnec
   assert.equal(summary.meaningfulDryCourse, true);
   assert.ok(JSON.stringify(summary).length < 6000);
   assert.equal(f.bot.quits, 1);
-  assert.equal(f.bot.cleared, 1);
+  assert.equal(f.bot.cleared, 0);
   assert.equal(f.bot.listenerCount("physicsTick"), 0);
   assert.equal(f.bot._client.listenerCount("entity_metadata"), 0);
   assert.equal(f.bot._client.listenerCount("entity_velocity"), 0);
@@ -643,7 +652,7 @@ test("connection, spawn, version and initialization failures do not observe", as
   const noSpawn = setup({ spawn: false });
   noSpawn.initialize();
   assert.equal((await noSpawn.result).reason, "spawn_timeout");
-  assert.equal(noSpawn.bot.cleared, 1);
+  assert.equal(noSpawn.bot.cleared, 0);
   assert.equal(noSpawn.calls(), 0);
   const mismatch = setup();
   mismatch.bot.version = "wrong";
@@ -716,8 +725,14 @@ test("invalid observer output and elapsed timeout cannot report success", async 
   assert.equal((await invalid.result).reason, "incomplete_capture");
   assert.equal(invalid.calls(), 1);
   let now = 0;
-  t.mock.method(performance, "now", () => (now++ === 0 ? 0 : 1001));
-  const timed = setup();
+  t.mock.method(performance, "now", () => now);
+  const timed = setup({
+    observe: (bot) => {
+      const cells = observeNearbyTerrain(bot);
+      now = 1001;
+      return cells;
+    },
+  });
   timed.initialize();
   assert.equal((await timed.result).reason, "observation_timeout");
   assert.equal(timed.calls(), 1);
@@ -842,7 +857,7 @@ test("detectable pose changes and contradictory observer output fail capture wit
       false,
     );
     assert.equal(f.calls(), 1);
-    assert.equal(f.bot.cleared, 1);
+    assert.equal(f.bot.cleared, 0);
   }
 });
 
@@ -876,7 +891,7 @@ test("invalid merger metadata and merger exceptions remain structured and saniti
       false,
     );
     assert.equal(f.bot.quits, 1);
-    assert.equal(f.bot.cleared, 1);
+    assert.equal(f.bot.cleared, 0);
   }
 });
 
@@ -906,7 +921,7 @@ test("disconnect, respawn and abort during synchronous acquisition invalidate li
       ok: false,
       code: "inconsistent_capture",
     });
-    assert.equal(f.bot.cleared, 1);
+    assert.equal(f.bot.cleared, 0);
     assert.equal(f.bot.listenerCount("physicsTick"), 0);
     assert.equal(f.bot.listenerCount("respawn"), 0);
   }
@@ -926,10 +941,7 @@ test("water or loss of stable footing during acquisition prevents publication", 
       },
     });
     f.initialize();
-    assert.equal(
-      (await f.result).reason,
-      fault === "health" ? "health_deteriorated" : "unsafe_post_capture_state",
-    );
+    assert.equal((await f.result).reason, "inconsistent_capture");
     assert.equal(
       f.records.some((r) => r.event === "terrain_diagnostic_observation"),
       false,
@@ -989,7 +1001,7 @@ test("confirmed low and boundary health refuse before capture with numeric evide
     assert.equal(failure.captureInvoked, false);
     assert.equal(f.calls(), 0);
     assert.equal(f.bot.quits, 1);
-    assert.equal(f.bot.cleared, 1);
+    assert.equal(f.bot.cleared, 0);
     assert.equal(f.bot.listenerCount("health"), 1); // Existing session reporter only.
     assert.ok(JSON.stringify(failure).length < 2000);
     assert.equal(Object.hasOwn(failure, "counts"), false);
@@ -1022,7 +1034,7 @@ test("malformed or nonfinite health is invalid rather than confirmed low health"
     assert.equal(JSON.stringify(f.records).includes("SECRET"), false);
     assert.equal(f.calls(), 0);
     assert.equal(f.bot.quits, 1);
-    assert.equal(f.bot.cleared, 1);
+    assert.equal(f.bot.cleared, 0);
   }
 });
 
@@ -1055,7 +1067,7 @@ test("missing initial health waits within existing deadline then refuses as unav
     assert.equal(failure.captureInvoked, false);
     assert.equal(f.calls(), 0);
     assert.equal(f.bot.quits, 1);
-    assert.equal(f.bot.cleared, 1);
+    assert.equal(f.bot.cleared, 0);
     assert.equal(f.bot.listenerCount("physicsTick"), 0);
   }
 });
@@ -1106,7 +1118,7 @@ test("health loss after availability and cancellation while unavailable fail clo
   controller.abort();
   assert.equal((await waiting.result).reason, "cancelled");
   assert.equal(waiting.calls(), 0);
-  assert.equal(waiting.bot.cleared, 1);
+  assert.equal(waiting.bot.cleared, 0);
   assert.equal(waiting.bot.quits, 1);
 });
 

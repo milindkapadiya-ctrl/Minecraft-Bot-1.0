@@ -1,3 +1,9 @@
+import { EventEmitter } from "node:events";
+import {
+  collectStationarity,
+  GROUNDED_GRAVITY_RESIDUAL,
+  type StationaryEvidence,
+} from "../src/perception/stationarity.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -16,10 +22,14 @@ const request = { scanId: "scan-1", viewId: "view-0" };
 function fixture() {
   let reads = 0;
   const forbidden = () => assert.fail("control/interaction invoked");
-  const raw = {
+  const raw = Object.assign(new EventEmitter(), {
+    version: "26.1",
     entity: {
       position: new Vec3(0.5, 64, 0.5),
       velocity: new Vec3(0, 0, 0),
+      onGround: true,
+      isInWater: false,
+      effects: {},
       eyeHeight: 1.62,
       yaw: -Math.PI / 2,
       pitch: -0.8,
@@ -44,13 +54,38 @@ function fixture() {
     attack: forbidden,
     equip: forbidden,
     inventory: { items: forbidden },
-  };
+  });
   const bot = raw as unknown as Bot;
   const session = { bot, sessionId: "lifecycle-1", active: true };
   const context: CaptureContext = { readSession: () => session };
+  let time = 0;
+  const collector = collectStationarity(context, {
+    now: () => time,
+    freshnessNow: () => time,
+  });
+  const refresh = () => {
+    for (let i = 0; i < 6; i++) {
+      time += 50;
+      raw.emit("physicsTick");
+    }
+    context.stationarity = collector.evidence();
+  };
+  refresh();
   const times = [100, 102];
   const now = () => times.shift()!;
-  return { bot, raw, session, context, now, reads: () => reads };
+  return {
+    bot,
+    raw,
+    session,
+    context,
+    now,
+    refresh,
+    collector,
+    expire: () => {
+      time += 100;
+    },
+    reads: () => reads,
+  };
 }
 function captured(result: ReturnType<typeof captureView>) {
   assert.equal(result.ok, true);
@@ -102,6 +137,7 @@ test("default clock and real observer work without controls or retained state", 
   assert.ok(a.acquisition.completedAtMs >= a.acquisition.startedAtMs);
   assert.ok(f.reads() <= 4096);
   f.bot.entity.yaw = Math.PI / 2;
+  f.refresh();
   const b = captured(captureView(f.context, { ...request, viewId: "view-1" }));
   assert.notDeepEqual(a.view.cells, b.view.cells);
   assert.equal(a.view.pose.yaw, -Math.PI / 2);
@@ -311,6 +347,7 @@ test("ordered captures merge with original times; duplicate IDs and reversed ord
   const f = fixture();
   const a = captured(captureView(f.context, request, { now: () => 100 })).view;
   f.bot.entity.yaw += 0.2;
+  f.refresh();
   const b = captured(
     captureView(
       f.context,
@@ -338,4 +375,139 @@ test("endpoint checks explicitly cannot detect transient movement away and back"
     },
   });
   assert.equal(r.ok, true); // Limitation evidence, not a stationarity proof.
+});
+
+test("receipts are authentic, single-use and expire before capture reads", () => {
+  for (const fault of [
+    "missing",
+    "forged",
+    "expired",
+    "disposed",
+    "replay",
+  ] as const) {
+    const f = fixture();
+    if (fault === "missing") f.context.stationarity = undefined;
+    if (fault === "forged")
+      f.context.stationarity = {
+        startedAtMs: 0,
+        completedAtMs: 200,
+        samples: 5,
+      } as StationaryEvidence;
+    if (fault === "expired") f.expire();
+    if (fault === "disposed") f.collector.dispose();
+    if (fault === "replay") captured(captureView(f.context, request));
+    const reads = f.reads();
+    assert.deepEqual(
+      captureView(f.context, request),
+      { ok: false, code: "invalid_context" },
+      fault,
+    );
+    assert.equal(f.reads(), reads);
+  }
+});
+
+test("handoff rechecks pose, session, health and recognized vertical velocity", () => {
+  for (const fault of [
+    "session",
+    "inactive",
+    "position",
+    "yaw",
+    "pitch",
+    "health",
+    "ground",
+    "water",
+    "controls",
+    "residual",
+    "invalid",
+  ] as const) {
+    const f = fixture();
+    if (fault === "session") f.session.sessionId = "replacement";
+    if (fault === "inactive") f.session.active = false;
+    if (fault === "position") f.bot.entity.position.x += 1e-9;
+    if (fault === "yaw") f.bot.entity.yaw += 1e-9;
+    if (fault === "pitch") f.bot.entity.pitch += 1e-9;
+    if (fault === "health") f.bot.health = 19;
+    if (fault === "ground") f.raw.entity.onGround = false;
+    if (fault === "water") f.raw.entity.isInWater = true;
+    if (fault === "controls") f.raw.controlState.forward = true;
+    if (fault === "residual")
+      f.bot.entity.velocity.y = GROUNDED_GRAVITY_RESIDUAL + 1e-12;
+    if (fault === "invalid") f.bot.entity.velocity.x = NaN;
+    assert.deepEqual(
+      captureView(f.context, request),
+      { ok: false, code: "invalid_context" },
+      fault,
+    );
+    assert.equal(f.reads(), 0);
+  }
+});
+
+test("recognized pinned residual is accepted, but version and effect mismatch are refused", () => {
+  const f = fixture();
+  f.bot.entity.velocity.y = GROUNDED_GRAVITY_RESIDUAL;
+  f.refresh();
+  captured(captureView(f.context, request));
+  for (const fault of ["version", "effects"] as const) {
+    const g = fixture();
+    g.bot.entity.velocity.y = GROUNDED_GRAVITY_RESIDUAL;
+    if (fault === "version") g.raw.version = "other";
+    if (fault === "effects") Object.assign(g.raw.entity.effects, { 1: {} });
+    g.refresh();
+    assert.equal(captureView(g.context, request).ok, false);
+    assert.equal(g.reads(), 0);
+  }
+});
+
+test("observed motion out and back, disconnect and cancellation revoke receipts", () => {
+  for (const fault of [
+    "motion",
+    "end",
+    "forcedMove",
+    "respawn",
+    "abort",
+  ] as const) {
+    const f = fixture();
+    if (fault === "motion") {
+      f.bot.entity.position.x += 0.001;
+      f.raw.emit("physicsTick");
+      f.bot.entity.position.x -= 0.001;
+    } else if (fault === "abort") {
+      f.collector.dispose();
+      const controller = new AbortController();
+      collectStationarity(f.context, { signal: controller.signal });
+      controller.abort();
+    } else f.raw.emit(fault);
+    assert.equal(captureView(f.context, request).ok, false);
+    assert.equal(f.reads(), 0);
+  }
+});
+
+test("expiry or new physics event during acquisition publishes no partial view", () => {
+  for (const fault of ["expired", "event"] as const) {
+    const f = fixture();
+    const result = captureView(f.context, request, {
+      observe: (bot) => {
+        const cells = observeNearbyTerrain(bot);
+        if (fault === "expired") f.expire();
+        else f.raw.emit("physicsTick");
+        return cells;
+      },
+    });
+    assert.deepEqual(result, { ok: false, code: "inconsistent_capture" });
+    assert.equal(Object.hasOwn(result, "view"), false);
+    assert.equal(captureView(f.context, request).ok, false);
+  }
+});
+
+test("a reentrant acquisition cannot spend the same stationary receipt twice", () => {
+  const f = fixture();
+  let inner: ReturnType<typeof captureView> | undefined;
+  const outer = captureView(f.context, request, {
+    observe: (bot) => {
+      inner = captureView(f.context, { ...request, viewId: "reentrant" });
+      return observeNearbyTerrain(bot);
+    },
+  });
+  assert.deepEqual(inner, { ok: false, code: "invalid_context" });
+  captured(outer);
 });

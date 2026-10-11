@@ -1,3 +1,9 @@
+import { EventEmitter } from "node:events";
+import type { Bot } from "mineflayer";
+import {
+  collectStationarity,
+  validateStationarity,
+} from "../src/perception/stationarity.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -25,7 +31,7 @@ type Sample = {
   session: string;
 };
 // Test-local proposal ONLY, derived from installed default dry physics.
-// Production speed/drift/readiness constants and predicates are unchanged.
+// Historical Task20 comparison retained; production receipt regressions follow below.
 const groundResidual = -0.08 * Math.fround(0.98);
 const horizontal = (v: Vector) => Math.hypot(v.x, v.z);
 const total = (v: Vector) => Math.hypot(v.x, v.y, v.z);
@@ -127,7 +133,7 @@ function fixture({
       session: "offline-1",
     };
   };
-  return { step, controls };
+  return { step, controls, bot };
 }
 
 /** Conservative candidate: five fresh identical-position grounded samples
@@ -429,4 +435,151 @@ test("cancellation, disconnect, pose/session change and ground loss revoke a rea
     assert.equal(evaluate(bad), "rejected");
     assert.equal(evaluate(samples[6]!), "rejected");
   }
+});
+
+function productionFixture(options: Parameters<typeof fixture>[0] = {}) {
+  const physics = fixture(options);
+  const raw = Object.assign(new EventEmitter(), physics.bot, {
+    health: 20,
+    physicsEnabled: true,
+    controlState: physics.controls,
+    game: { gameMode: "survival", dimension: "overworld" },
+  });
+  Object.assign(raw.entity, { eyeHeight: 1.62, isInWater: false });
+  const session = {
+    bot: raw as unknown as Bot,
+    sessionId: "production-1",
+    active: true,
+  };
+  const context = { readSession: () => session };
+  const controller = new AbortController();
+  let time = 0;
+  const collector = collectStationarity(context, {
+    now: () => time,
+    freshnessNow: () => time,
+    signal: controller.signal,
+  });
+  const emit = (delta = 50) => {
+    time += delta;
+    raw.emit("physicsTick");
+  };
+  const step = () => {
+    physics.step();
+    emit();
+  };
+  return { raw, session, context, collector, controller, emit, step };
+}
+
+test("production collector accepts installed standing physics after five fresh samples and 200ms", () => {
+  const f = productionFixture();
+  f.step(); // Installed physics first initializes contact.
+  for (let i = 0; i < 4; i++) f.step();
+  assert.equal(f.collector.evidence(), undefined);
+  f.step();
+  const receipt = f.collector.evidence();
+  assert.ok(receipt);
+  assert.equal(receipt.samples, 5);
+  assert.equal(receipt.completedAtMs - receipt.startedAtMs, 200);
+  assert.equal(validateStationarity(receipt, f.context), true);
+  f.collector.dispose();
+});
+
+test("production installed falling, walking and slow ice sliding cannot mint stationary receipts", () => {
+  for (const options of [
+    { floor: "none" },
+    { walk: true },
+    { floor: "ice", vx: 0.005 },
+  ]) {
+    const f = productionFixture(options);
+    let movingSamples = 0;
+    for (let i = 0; i < 12; i++) {
+      const previous = { ...f.raw.entity.position };
+      f.step();
+      if (
+        !same(previous, f.raw.entity.position) ||
+        !f.raw.entity.onGround ||
+        options.walk
+      ) {
+        movingSamples++;
+        assert.equal(f.collector.evidence(), undefined);
+      }
+    }
+    assert.ok(movingSamples > 0);
+    f.collector.dispose();
+  }
+});
+
+test("production installed landing displacement is excluded from the five-sample window", () => {
+  const f = productionFixture({ y: 64.02, vy: -0.04 });
+  f.step(); // Actual landing displacement.
+  assert.equal(f.raw.entity.onGround, true);
+  assert.equal(f.collector.evidence(), undefined);
+  for (let i = 0; i < 4; i++) f.step();
+  assert.equal(f.collector.evidence(), undefined);
+  f.step();
+  assert.equal(f.collector.evidence()?.samples, 5);
+  f.collector.dispose();
+});
+
+test("production collector rejects replayed clocks and requires elapsed stability time", () => {
+  const f = productionFixture();
+  for (let i = 0; i < 5; i++) f.emit(10);
+  assert.equal(f.collector.evidence(), undefined);
+  f.emit(0);
+  for (let i = 0; i < 10; i++) f.emit(50);
+  assert.equal(f.collector.evidence(), undefined);
+  assert.equal(f.raw.listenerCount("physicsTick"), 0);
+  const g = productionFixture();
+  for (let i = 0; i < 5; i++) g.emit();
+  assert.ok(g.collector.evidence());
+  g.collector.dispose();
+});
+
+test("production receipts revoke on abort, lifecycle loss and tiny actual displacement", () => {
+  for (const fault of [
+    "abort",
+    "end",
+    "session",
+    "ground",
+    "position",
+    "velocity",
+    "controls",
+    "health",
+  ] as const) {
+    const f = productionFixture();
+    for (let i = 0; i < 5; i++) f.emit();
+    const receipt = f.collector.evidence();
+    assert.ok(receipt);
+    if (fault === "abort") f.controller.abort();
+    if (fault === "end") f.raw.emit("end");
+    if (fault === "session") f.session.sessionId = "other";
+    if (fault === "ground") f.raw.entity.onGround = false;
+    if (fault === "position") f.raw.entity.position.x += 1e-12;
+    if (fault === "velocity") f.raw.entity.velocity.y = -0.000001;
+    if (fault === "controls") f.raw.controlState.forward = true;
+    if (fault === "health") f.raw.health = 6;
+    assert.equal(validateStationarity(receipt, f.context), false, fault);
+    f.emit();
+    assert.equal(f.collector.evidence(), undefined, fault);
+    f.collector.dispose();
+  }
+});
+
+test("production collector excludes invalid telemetry and resets tiny-displacement windows", () => {
+  for (const velocity of [NaN, Infinity, -0.001, 0.001, -0.0784]) {
+    const f = productionFixture();
+    f.raw.entity.velocity.y = velocity;
+    for (let i = 0; i < 6; i++) f.emit();
+    assert.equal(f.collector.evidence(), undefined);
+    f.collector.dispose();
+  }
+  const f = productionFixture();
+  for (let i = 0; i < 4; i++) f.emit();
+  f.raw.entity.position.x += 1e-12;
+  f.emit();
+  for (let i = 0; i < 4; i++) f.emit();
+  assert.equal(f.collector.evidence(), undefined);
+  f.emit();
+  assert.equal(f.collector.evidence()?.samples, 5);
+  f.collector.dispose();
 });

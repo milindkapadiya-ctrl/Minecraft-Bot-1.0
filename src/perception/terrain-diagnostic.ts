@@ -1,4 +1,4 @@
-import mineflayer, { type Bot } from "mineflayer";
+import { type Bot } from "mineflayer";
 import { randomUUID } from "node:crypto";
 import type { Config } from "../config.js";
 import type { Log } from "../telemetry/logger.js";
@@ -8,6 +8,7 @@ import { installVelocityCompatibility } from "../minecraft/velocity-compat.js";
 import { eyeHeight } from "../actions/local.js";
 import { observeNearbyTerrain } from "./nearby-terrain.js";
 import { captureView } from "./capture-view.js";
+import { collectStationarity, stationaryState } from "./stationarity.js";
 import { mergeObservations } from "./merge-observations.js";
 
 type Options = {
@@ -200,6 +201,14 @@ export async function runTerrainDiagnostic(
     viewId: "view-0",
   };
   let sessionActive = false;
+  let collector: ReturnType<typeof collectStationarity> | undefined;
+  const captureContext = {
+    readSession: () => ({
+      bot: bot!,
+      sessionId: identity.sessionId,
+      active: sessionActive && !reason && !ended,
+    }),
+  };
   let captureStatus: { ok: boolean; code?: string } | undefined;
   let mergeStatus: { ok: boolean; code?: string } | undefined;
   let readAir: ReturnType<typeof ownAirView>["read"] = () => ({
@@ -231,10 +240,12 @@ export async function runTerrainDiagnostic(
     (event, data) => {
       if (event !== "player_state") log(event, data);
     },
-    (input) => {
-      bot = (options.factory ?? mineflayer.createBot)(input);
-      return bot;
-    },
+    options.factory
+      ? (input) => {
+          bot = options.factory!(input);
+          return bot;
+        }
+      : undefined,
     (b) => {
       bot = b;
       spawned = true;
@@ -355,6 +366,8 @@ export async function runTerrainDiagnostic(
           eyeHeight: eyeHeight(b),
         };
         const previous = previousPosition ?? origin;
+        const unchangedPosition =
+          p.x === previous.x && p.y === previous.y && p.z === previous.z;
         cumulativeHorizontal += Math.hypot(p.x - previous.x, p.z - previous.z);
         cumulativeVertical += Math.abs(p.y - previous.y);
         previousPosition = { x: p.x, y: p.y, z: p.z };
@@ -441,12 +454,12 @@ export async function runTerrainDiagnostic(
           return;
         }
         if (
-          motion.status === "moving" ||
-          motion.velocity.y < 0 ||
+          !stationaryState(b) ||
+          !unchangedPosition ||
           !initializationCompleted
         ) {
           phase = initializationCompleted ? "transient" : "initializing";
-          if (motion.status === "moving" || motion.velocity.y < 0)
+          if (!stationaryState(b) || !unchangedPosition)
             settlingWaitOccurred = true;
           stableSince = undefined;
           stableChecks = 0;
@@ -490,6 +503,7 @@ export async function runTerrainDiagnostic(
       const corrected = () => fail("unexpected_position_correction");
       const dispose = () => {
         sessionActive = false;
+        collector?.dispose();
         clearTimeout(timer);
         b.off("physicsTick", tick);
         b.off("health", guard);
@@ -542,6 +556,11 @@ export async function runTerrainDiagnostic(
         );
         runtimeReady = true;
         sessionActive = true;
+        collector = collectStationarity(captureContext, {
+          now: () => lastNow,
+          eligible: () => initializationCompleted && !reason,
+          signal: options.signal,
+        });
         guard();
       } catch {
         dispose();
@@ -641,7 +660,7 @@ export async function runTerrainDiagnostic(
       reason = e.isInWater ? "submerged_start" : "unstable_start";
       throw Error();
     }
-    if (motion.status === "moving" || motion.velocity!.y < 0) {
+    if (!stationaryState(bot)) {
       log("terrain_diagnostic_unsuitable", {
         ...state,
         reason: "not_stationary",
@@ -653,13 +672,7 @@ export async function runTerrainDiagnostic(
     captureInvoked = true;
     const started = performance.now();
     const captured = captureView(
-      {
-        readSession: () => ({
-          bot: bot!,
-          sessionId: identity.sessionId,
-          active: sessionActive && !reason && !ended,
-        }),
-      },
+      { ...captureContext, stationarity: collector?.evidence() },
       { scanId: identity.scanId, viewId: identity.viewId },
       {
         observe: (b) => {
@@ -694,7 +707,7 @@ export async function runTerrainDiagnostic(
       !e.onGround ||
       !Number.isFinite(bot.health) ||
       bot.health <= healthThreshold ||
-      motionReading(e.velocity).status !== "stationary" ||
+      !stationaryState(bot) ||
       postAir.status === "invalid" ||
       (postAir.status === "valid" && postAir.raw! <= 60)
     ) {
@@ -799,12 +812,7 @@ export async function runTerrainDiagnostic(
   } finally {
     sessionActive = false;
     options.signal?.removeEventListener("abort", cancel);
-    try {
-      if (typeof bot?.clearControlStates === "function")
-        bot.clearControlStates();
-    } catch {
-      reason = "cleanup_failed";
-    }
+    collector?.dispose();
     session.stop(reason ?? "observation_complete", reason ? 1 : 0);
   }
   const result = await session.done;

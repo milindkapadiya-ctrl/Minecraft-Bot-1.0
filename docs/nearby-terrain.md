@@ -98,7 +98,17 @@ Task 9 supersedes Task 4's permissive stationary-water/airborne snapshot behavio
 
 Offline integration tests exercise production observer/capture/merger together, original evidence and UUID/timing identity, one view, unknown-only output, contradictory/malformed evidence refusal, pose/session/respawn/abort faults, structured output, safe cleanup and merger failure. Live validation remains pending explicit exclusive shared server/world and SurvivalBot ownership plus approved runtime/world selection. The source checkout is not a newly authorized world. Once authorized, use the existing launcher for one bounded attempt only; no retries, navigation or multi-view scanning. Will's reviewed/merged shared controller remains a dependency for later camera scanning, not for this isolated read-only single-view adapter.
 
-## Single-view acquisition adapter — Task 8
+## Fresh stationary acquisition — Task 21A (current contract)
+
+This supersedes Task 8's endpoint-only admission and the earlier diagnostic total-speed gate. CaptureContext additionally requires stationarity, an opaque receipt from collectStationarity in src/perception/stationarity.ts. It is Perception-local; KnownCell, CapturedView and shared controller/navigation contracts are unchanged. Missing/forged/reused evidence returns invalid_context before terrain reads.
+
+Five fresh increasing-time physics events spanning at least 200 ms must all be dry, grounded Survival with exact XYZ/orientation/entity/dimension/eye-height stability, health>6, controls off and finite horizontal speed<0.01. Landing/moving displacement cannot count. Vertical velocity must be zero or exactly the installed ordinary gravity residual -0.0784000015258789; the latter additionally requires the pinned runtime,26.1 and no active effects. Approximate residuals and invalid telemetry refuse.
+
+Receipts record the observation interval, bind the actual bot/session and pose privately, expire at 100 ms, and are revoked by a new physics event, forcedMove, respawn, disconnect, abort or disposal. Capture reserves one receipt synchronously, independently rechecks current state at both endpoints and publishes no partial view on failure. A fresh receipt is required for each future capture. Clock/eligibility injection is an offline/initialization seam; production uses monotonic event timing.
+
+The diagnostic retains 1500 ms readiness, startup/descent/drift/health/own-air/lifecycle guards and one bounded synchronous observer call. Default launch uses the existing connection lease; session ownership handles shutdown without raw clearControlStates. Visibility, 4096-read/245-cell bounds, original timestamps and unknown-cell semantics remain unchanged. Receipt/event checks cannot guarantee camera exclusivity or detect unobserved transient out-and-back motion. Task 21B must hold canonical exclusive ownership across acquisition/restoration. No scanner or live evidence is claimed.
+
+## Single-view acquisition adapter — Task 8 (historical; superseded above)
 
 `captureView(context, { scanId, viewId }, options?)` in `src/perception/capture-view.ts` invokes the production observer exactly once after valid preconditions. Success is `{ ok: true, view: CapturedView, acquisition: { startedAtMs, completedAtMs } }`; failure is `{ ok: false, code }` without evidence. No controls, sessions, reservations, actions, retries or awaits are invoked. Optional observer/clock injection is an offline test seam, trusted caller code rather than permission to supply privileged terrain in gameplay.
 
