@@ -98,3 +98,9 @@ Bounded surface hold (2026-10-04): separate one-second swim-up breathing window,
 
 - Reproduced premature composite ownership release and reuse after throwing control cleanup. Cleanup now retains exclusive ownership for bounded cooperative unwinding/restoration; failure or500ms expiry permanently closes the controller. Authoritative shutdown revokes access without waiting indefinitely.
 - Seven new offline regressions; focused63/63, full203/203, TypeScript/build pass. Inherited RESUME/TEAM_WORKFLOW formatting failures remain. No live connection or changes to recovery/navigation implementations. Remaining manual check: real cleanup-failure disconnect; HQ re-review before merge. See docs/shared-action-ownership.md.
+
+### SHARED-02 offline installed-control startup fix — 2026-10-10
+
+- Isolated main-based will-actionrunner-startup-fix preserves all Navigation/NAV-05F proposals. Installed Mineflayer clearControlStates delegates false resets to setControlState; the stationary guard rejected those nested calls at startup and again during cleanup.
+- Guard permits only synchronous false resets inside authorized clear calls, retaining valid ownership, activation/stale-callback rejection and fail-closed cleanup. Six installed-plugin offline regressions; full209/209 and focused45/45, typecheck/build pass; inherited RESUME/TEAM_WORKFLOW formatting only.
+- Published scanner tests remain offline. Actual installed look exposes a separate unexpected_camera refusal after first capture; full live scan readiness is not established. Ethan/HQ must review quantized camera behavior before any separately authorized live retry. No Minecraft connection or gameplay occurred; Surface Recovery source unchanged.
