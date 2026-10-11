@@ -118,3 +118,13 @@ Single corrected-air emergency retry (2026-10-04): one upward-only attempt succe
 Read-only saved-surface check (2026-10-04): classificationC, passive sinking3.28574 blocks over3.053s, own air61→4, not grounded; no visible certified dry exit. No controls/code changes, baseline162 unchanged. Bot disconnected/server saved-stopped. Next only on request: bounded offline surface-holding/stability task. See docs/RESUME.md.
 
 Bounded surface hold (2026-10-04): separate one-second swim-up breathing window, fresh own-air admission, motion/health/air guards and cleanup. Installed client-water physics comparison plus lifecycle tests;183 tests/full checks passed. Air telemetry synthetic, no live action or server. Next only on request: one bounded emergency-to-hold live calibration; see docs/surface-hold.md. No shoreline/navigation milestone advancement.
+
+### SHARED-01 prototype ownership — 2026-10-08
+
+- Canonical runner, bounded composite ownership, guarded control methods, session-safe closure and cross-process connection reservation implemented on isolated will-shared-actionrunner. Paused recovery controllers unchanged; standalone legacy mode is enforced separately.
+- Offline suite196/196 passes; TypeScript/build pass. Inherited RESUME/TEAM_WORKFLOW formatting failures remain. No scanner, terrain contract, navigation changes or live tests. Pending: HQ review, updated-runtime manual lifecycle check and separately authorized scanner integration. See docs/shared-action-ownership.md for exact boundaries.
+
+### SHARED-01 PR #3 cleanup safety revision — 2026-10-08
+
+- Reproduced premature composite ownership release and reuse after throwing control cleanup. Cleanup now retains exclusive ownership for bounded cooperative unwinding/restoration; failure or500ms expiry permanently closes the controller. Authoritative shutdown revokes access without waiting indefinitely.
+- Seven new offline regressions; focused63/63, full203/203, TypeScript/build pass. Inherited RESUME/TEAM_WORKFLOW formatting failures remain. No live connection or changes to recovery/navigation implementations. Remaining manual check: real cleanup-failure disconnect; HQ re-review before merge. See docs/shared-action-ownership.md.

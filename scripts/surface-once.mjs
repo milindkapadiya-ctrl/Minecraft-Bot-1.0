@@ -16,14 +16,21 @@ const spawned = new Promise((r) => {
   ready = r;
 });
 let air;
-const session = startSession(config, log, undefined, (bot) => {
-  air = ownAirView(bot);
-  ready(air.bot);
-  return () => {
-    controller.abort();
-    air.dispose();
-  };
-});
+const session = startSession(
+  config,
+  log,
+  undefined,
+  (bot) => {
+    air = ownAirView(bot);
+    ready(air.bot);
+    return () => {
+      controller.abort();
+      air.dispose();
+    };
+  },
+  false,
+  "legacy-surface",
+);
 try {
   const bot = await Promise.race([
     spawned,

@@ -36,6 +36,7 @@ class LocalBot extends EventEmitter {
   removed = false;
   digs = 0;
   stops = 0;
+  stopError = false;
   settle: (() => void) | undefined;
   delayedLook: Promise<void> | undefined;
   blockAt(p: Bot["entity"]["position"]) {
@@ -89,6 +90,7 @@ class LocalBot extends EventEmitter {
     });
   }
   stopDigging() {
+    if (this.stopError) throw Error("SECRET");
     this.stops++;
     this.settle?.();
   }
@@ -302,10 +304,7 @@ test("dig close and dependency failures remove listeners and release controls", 
     const { fake, runner } = setup();
     const pending = runner.run({ type: "dig", target, timeoutMs: 1000 });
     await next();
-    if (fails)
-      fake.stopDigging = () => {
-        throw Error("SECRET");
-      };
+    fake.stopError = fails;
     runner.close();
     const result = await pending;
     assert.equal(result.code, fails ? "execution_error" : "interrupted");

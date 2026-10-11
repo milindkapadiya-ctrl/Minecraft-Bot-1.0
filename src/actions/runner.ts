@@ -1,3 +1,10 @@
+import {
+  installControlOwnership,
+  protectControls,
+  assertPrototypeControls,
+  acquireControls,
+  closeControls,
+} from "./control-ownership.js";
 import { prepareWalk, WalkMotion } from "./walk-to.js";
 import type { Bot } from "mineflayer";
 import { randomUUID } from "node:crypto";
@@ -145,28 +152,76 @@ export function validateAction(value: unknown): Action | null {
   return null;
 }
 
+export interface ExclusiveContext {
+  readonly signal: AbortSignal;
+  checkpoint(): void;
+  look(yaw: number, pitch: number): Promise<void>;
+  observe<T>(read: () => T): T;
+  /** Camera restoration only during interrupted cleanup; no movement capability. */
+  restoreLook(yaw: number, pitch: number): Promise<void>;
+}
+type ExclusiveWork = (context: ExclusiveContext) => Promise<void>;
+const canonical = new WeakMap<Bot, ActionRunner>();
+
 // No queue: callers await each result; overlap is rejected instead of retaining
 // stale movement requests. This class is the sole owner of movement controls.
 export class ActionRunner {
-  private active: ((code: Code) => void) | undefined;
+  private active:
+    | { id: string; finish: (code: Code, shutdown?: boolean) => void }
+    | undefined;
   private closed = false;
   constructor(
     private readonly bot: Bot,
     private readonly log: Log,
-  ) {}
+  ) {
+    const existing = canonical.get(bot);
+    if (existing) return existing;
+    assertPrototypeControls(bot);
+    canonical.set(bot, this);
+    bot.once("end", this.disconnect);
+  }
+  private readonly disconnect = () => this.close();
 
-  cancel() {
-    this.active?.("cancelled");
+  cancel(actionId?: string) {
+    if (actionId === undefined || this.active?.id === actionId)
+      this.active?.finish("cancelled");
   }
   close() {
     this.closed = true;
-    this.active?.("interrupted");
+    this.active?.finish("interrupted", true);
+    closeControls(this.bot);
+    this.bot.off("end", this.disconnect);
   }
 
   run(input: unknown, signal?: AbortSignal): Promise<ActionResult> {
+    return this.execute(validateAction(input), signal);
+  }
+
+  /** Trusted compiled composition only; no callback comes from CLI/model input.
+   * One stationary, bounded interval. No nested actions or movement capability.
+   */
+  runExclusive(
+    timeoutMs: number,
+    work: ExclusiveWork,
+    signal?: AbortSignal,
+  ): Promise<ActionResult> {
+    const valid = validateAction({ type: "inspect", timeoutMs });
+    return this.execute(
+      valid && typeof work === "function"
+        ? { type: "exclusive", timeoutMs }
+        : null,
+      signal,
+      work,
+    );
+  }
+
+  private execute(
+    action: Action | { type: "exclusive"; timeoutMs: number } | null,
+    signal?: AbortSignal,
+    work?: ExclusiveWork,
+  ): Promise<ActionResult> {
     const started = performance.now();
     const id = randomUUID();
-    const action = validateAction(input);
     const before = motionSnapshot(this.bot);
     let ticks = 0;
     const details: Record<string, unknown> = {};
@@ -209,11 +264,31 @@ export class ActionRunner {
       !(this.bot.health > 0)
     )
       return reject("not_ready");
-    if (action.type === "move" && !this.bot.entity.onGround)
+    if (
+      (action.type === "move" || action.type === "exclusive") &&
+      (!this.bot.entity.onGround ||
+        (action.type === "exclusive" &&
+          Math.hypot(this.bot.entity.velocity.x, this.bot.entity.velocity.z) >=
+            0.01))
+    )
       return reject("not_ready");
 
+    installControlOwnership(this.bot);
+    protectControls(this.bot);
+    const ownership = acquireControls(this.bot, action.type === "exclusive");
     return new Promise((resolve) => {
+      const cancellation = new AbortController();
+      const ownedLook = (yaw: number, pitch: number) =>
+        ownership.within(() => this.bot.look(yaw, pitch, true));
       let ended = false;
+      let finalized = false;
+      let workPending = false;
+      let pendingLook = false;
+      let completionCode: Code = "execution_error";
+      let cleanupTimer: NodeJS.Timeout | undefined;
+      // Separate from the operation deadline: cooperative finally/restoration
+      // gets a bounded opportunity, never an indefinite shutdown dependency.
+      const cleanupBoundMs = 500;
       let lookApplied = false;
       let timer: NodeJS.Timeout | undefined;
       let interval: NodeJS.Timeout | undefined;
@@ -261,11 +336,68 @@ export class ActionRunner {
             type: Math.floor(r / 4096),
           });
       };
-      const finish = (code: Code) => {
-        if (ended) return;
+      const poison = (reason: string) => {
+        details.cleanup = reason;
+        this.closed = true;
+        completionCode = "execution_error";
+      };
+      const clear = () => {
+        for (const [name, cleanup] of [
+          [
+            "stopDigging",
+            () => {
+              if (digStarted) {
+                digStarted = false;
+                this.bot.stopDigging();
+              }
+            },
+          ],
+          ["clearControlStates", () => this.bot.clearControlStates()],
+        ] as const) {
+          try {
+            ownership.within(cleanup);
+          } catch {
+            details.cleanupOperation = name;
+            poison("failed");
+          }
+        }
+      };
+      const finalize = () => {
+        if (finalized || ((workPending || pendingLook) && !this.closed)) return;
+        finalized = true;
+        clearTimeout(cleanupTimer);
+        // Re-clear after cooperative cleanup; its success is required for reuse.
+        clear();
+        if (!details.cleanup) details.cleanup = "complete";
+        if (action.type === "dig") {
+          try {
+            details.inventoryAfter = inventory(this.bot);
+          } catch {
+            completionCode = "execution_error";
+          }
+        }
+        ownership.release();
+        if (this.closed) closeControls(this.bot);
+        this.active = undefined;
+        const r = result(completionCode);
+        this.log("action_result", { ...r, request: action });
+        resolve(r);
+      };
+      const finish = (code: Code, shutdown = false) => {
+        if (finalized) return;
+        if (ended) {
+          if (shutdown) {
+            details.cleanup = "shutdown_abandoned";
+            finalize();
+          }
+          return;
+        }
         ended = true;
-        if (code === "ok" && performance.now() - started >= action.timeoutMs)
-          code = "timeout";
+        completionCode =
+          code === "ok" && performance.now() - started >= action.timeoutMs
+            ? "timeout"
+            : code;
+        details.completionCause = completionCode;
         clearTimeout(timer);
         clearInterval(interval);
         signal?.removeEventListener("abort", abort);
@@ -280,22 +412,19 @@ export class ActionRunner {
           this.bot._client.off("block_change", serverBlock);
           this.bot._client.off("multi_block_change", serverBlocks);
         }
-        try {
-          if (digStarted) this.bot.stopDigging();
-        } catch {
-          code = "execution_error";
+        clear();
+        cancellation.abort();
+        if (finalized) return;
+        if (shutdown && (workPending || pendingLook))
+          details.cleanup = "shutdown_abandoned";
+        if ((!workPending && !pendingLook) || this.closed || shutdown) {
+          finalize();
+        } else {
+          cleanupTimer = setTimeout(() => {
+            poison("timeout");
+            finalize();
+          }, cleanupBoundMs);
         }
-        try {
-          this.bot.clearControlStates();
-          if (action.type === "dig")
-            details.inventoryAfter = inventory(this.bot);
-        } catch {
-          code = "execution_error";
-        }
-        this.active = undefined;
-        const r = result(code);
-        this.log("action_result", { ...r, request: action });
-        resolve(r);
       };
       const abort = () => finish("cancelled");
       const interrupted = () => finish("interrupted");
@@ -315,6 +444,22 @@ export class ActionRunner {
         safeCheck();
       };
       const check = () => {
+        if (
+          action.type === "exclusive" &&
+          (!this.bot.entity.onGround ||
+            Math.hypot(
+              this.bot.entity.velocity.x,
+              this.bot.entity.velocity.z,
+            ) >= 0.01 ||
+            Math.hypot(
+              this.bot.entity.position.x - before!.position.x,
+              this.bot.entity.position.y - before!.position.y,
+              this.bot.entity.position.z - before!.position.z,
+            ) > 0.02)
+        ) {
+          finish("interrupted");
+          return;
+        }
         if (!healthy()) {
           finish("physics_unhealthy");
           return;
@@ -351,12 +496,12 @@ export class ActionRunner {
       };
       const safeCheck = () => {
         try {
-          check();
+          if (!ended) ownership.within(check);
         } catch {
           finish("execution_error");
         }
       };
-      this.active = finish;
+      this.active = { id, finish };
       signal?.addEventListener("abort", abort, { once: true });
       this.bot.on("physicsTick", tick);
       this.bot.on("death", interrupted);
@@ -373,8 +518,106 @@ export class ActionRunner {
       interval = setInterval(safeCheck, 25);
       this.log("action_started", { id, request: action, before });
       try {
-        this.bot.clearControlStates();
-        if (action.type === "inspect" || action.type === "inventory") {
+        ownership.within(() => this.bot.clearControlStates());
+        if (action.type === "exclusive") {
+          const checkpoint = () => {
+            if (ended || cancellation.signal.aborted)
+              throw new Error("action_expired");
+            if (performance.now() - started >= action.timeoutMs) {
+              finish("timeout");
+              throw new Error("action_expired");
+            }
+            safeCheck();
+            if (ended) throw new Error("action_expired");
+          };
+          const context: ExclusiveContext = {
+            signal: cancellation.signal,
+            checkpoint,
+            async look(yaw, pitch) {
+              checkpoint();
+              if (
+                pendingLook ||
+                !validateAction({
+                  type: "look",
+                  yaw,
+                  pitch,
+                  timeoutMs: action.timeoutMs,
+                })
+              )
+                throw new Error("invalid_owned_look");
+              pendingLook = true;
+              try {
+                await ownership.within(() => thisBot.look(yaw, pitch, true));
+                checkpoint();
+              } finally {
+                pendingLook = false;
+                if (ended && !workPending) finalize();
+              }
+            },
+            async restoreLook(yaw, pitch) {
+              if (
+                !ended ||
+                finalized ||
+                thisRunner.closed ||
+                pendingLook ||
+                !validateAction({
+                  type: "look",
+                  yaw,
+                  pitch,
+                  timeoutMs: action.timeoutMs,
+                })
+              )
+                throw new Error("cleanup_look_unavailable");
+              pendingLook = true;
+              try {
+                await ownership.within(() => thisBot.look(yaw, pitch, true));
+                if (finalized) throw new Error("action_expired");
+              } catch (error) {
+                if (!finalized) poison("restoration_failed");
+                throw error;
+              } finally {
+                pendingLook = false;
+                if (ended && !workPending) finalize();
+              }
+            },
+            observe(read) {
+              checkpoint();
+              if (pendingLook) throw new Error("look_not_complete");
+              const value = read();
+              checkpoint();
+              return value;
+            },
+          };
+          const thisBot = this.bot;
+          const thisRunner = this;
+          workPending = true;
+          void Promise.resolve()
+            .then(() => {
+              checkpoint();
+              return work!(context);
+            })
+            .then(() => {
+              workPending = false;
+              if (ended) finalize();
+              else {
+                checkpoint();
+                finish("ok");
+              }
+            })
+            .catch((error: unknown) => {
+              workPending = false;
+              if (ended) {
+                if (
+                  !finalized &&
+                  !(
+                    error instanceof Error && error.message === "action_expired"
+                  )
+                )
+                  poison("restoration_failed");
+                finalize();
+              } else finish("execution_error");
+            });
+        } else if (action.type === "inspect" || action.type === "inventory") {
           details[action.type === "inspect" ? "blocks" : "inventory"] =
             action.type === "inspect" ? inspect(this.bot) : inventory(this.bot);
           finish("ok");
@@ -384,8 +627,7 @@ export class ActionRunner {
             finish("not_ready");
             return;
           }
-          void this.bot
-            .look(Math.atan2(-plan.dx, -plan.dz), -0.65, true)
+          void ownedLook(Math.atan2(-plan.dx, -plan.dz), -0.65)
             .then(() => {
               if (ended) return;
               const fresh = prepareWalk(this.bot, action.target, details);
@@ -394,7 +636,7 @@ export class ActionRunner {
                 return;
               }
               step = new WalkMotion(this.bot, fresh, details);
-              step.start(performance.now());
+              ownership.within(() => step!.start(performance.now()));
               lookApplied = true;
             })
             .catch(() => finish("execution_error"));
@@ -409,8 +651,7 @@ export class ActionRunner {
             finish("not_ready");
             return;
           }
-          void this.bot
-            .look(plan.yaw, -1.0, true)
+          void ownedLook(plan.yaw, -1.0)
             .then(() => {
               if (ended) return;
               const refreshed = prepareStepDown(
@@ -423,7 +664,7 @@ export class ActionRunner {
                 return;
               }
               step = new StepDownMotion(this.bot, refreshed, details);
-              step.start(performance.now());
+              ownership.within(() => step!.start(performance.now()));
               lookApplied = true;
             })
             .catch(() => finish("execution_error"));
@@ -438,8 +679,7 @@ export class ActionRunner {
             finish("not_ready");
             return;
           }
-          void this.bot
-            .look(plan.yaw, -0.4, true)
+          void ownedLook(plan.yaw, -0.4)
             .then(() => {
               if (ended) return;
               const refreshed = prepareStepUp(this.bot, action.target, details);
@@ -448,7 +688,7 @@ export class ActionRunner {
                 return;
               }
               step = new StepUpMotion(this.bot, refreshed, details);
-              step.start(performance.now());
+              ownership.within(() => step!.start(performance.now()));
               lookApplied = true;
             })
             .catch(() => finish("execution_error"));
@@ -478,12 +718,10 @@ export class ActionRunner {
           const delta = target.position
             .offset(0.5, 1, 0.5)
             .minus(this.bot.entity.position.offset(0, eyeHeight(this.bot), 0));
-          void this.bot
-            .look(
-              Math.atan2(-delta.x, -delta.z),
-              Math.atan2(delta.y, Math.hypot(delta.x, delta.z)),
-              true,
-            )
+          void ownedLook(
+            Math.atan2(-delta.x, -delta.z),
+            Math.atan2(delta.y, Math.hypot(delta.x, delta.z)),
+          )
             .then(() => {
               if (ended) return;
               lookApplied = true;
@@ -493,7 +731,7 @@ export class ActionRunner {
                   return;
                 }
                 step = new FlatApproachMotion(this.bot, action.target, details);
-                step.start(performance.now());
+                ownership.within(() => step!.start(performance.now()));
               } else {
                 if (
                   !targetBlock(this.bot, action.target) ||
@@ -505,23 +743,27 @@ export class ActionRunner {
                 // 'ignore' has no pre-start await in the pinned Mineflayer dig
                 // implementation. Cancellation cannot race a delayed look task.
                 digStarted = true;
-                void this.bot.dig(target!, "ignore").then(
-                  () => {
-                    digDone = true;
-                  },
-                  () => finish("execution_error"),
-                );
+                void ownership
+                  .within(() => this.bot.dig(target!, "ignore"))
+                  .then(
+                    () => {
+                      digDone = true;
+                    },
+                    () => finish("execution_error"),
+                  );
               }
             })
             .catch(() => finish("execution_error"));
         } else if (action.type === "move")
-          this.bot.setControlState(action.direction, true);
+          ownership.within(() =>
+            this.bot.setControlState(action.direction, true),
+          );
         else if (action.type === "look") {
           // force=true applies the orientation immediately, without leaving a
           // smooth-look task that could keep changing orientation after abort.
-          void this.bot.look(action.yaw, action.pitch, true).then(
+          void ownedLook(action.yaw, action.pitch).then(
             () => {
-              lookApplied = true;
+              if (!ended) lookApplied = true;
             },
             () => finish("execution_error"),
           );
