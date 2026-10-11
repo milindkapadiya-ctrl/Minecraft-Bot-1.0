@@ -104,3 +104,9 @@ Bounded surface hold (2026-10-04): separate one-second swim-up breathing window,
 - Isolated main-based will-actionrunner-startup-fix preserves all Navigation/NAV-05F proposals. Installed Mineflayer clearControlStates delegates false resets to setControlState; the stationary guard rejected those nested calls at startup and again during cleanup.
 - Guard permits only synchronous false resets inside authorized clear calls, retaining valid ownership, activation/stale-callback rejection and fail-closed cleanup. Six installed-plugin offline regressions; full209/209 and focused45/45, typecheck/build pass; inherited RESUME/TEAM_WORKFLOW formatting only.
 - Published scanner tests remain offline. Actual installed look exposes a separate unexpected_camera refusal after first capture; full live scan readiness is not established. Ethan/HQ must review quantized camera behavior before any separately authorized live retry. No Minecraft connection or gameplay occurred; Surface Recovery source unchanged.
+
+### SHARED-02 final regression review — 2026-10-10
+
+- Preserved fix050bd727 and compared Ethan's published matching offline reproduction4edfa0d. Added only three tests for installed clearance ordering, pending cancellation restoration, and original action failure followed by cleanup failure; production fix unchanged.
+- Focused48/48, full212/212, isolated combined scanner280/280; TypeScript/build pass. Only inherited RESUME/TEAM_WORKFLOW formatting failures remain. Fifteen coverage requirements mapped in docs/shared-action-ownership.md.
+- Next: independent PR review before merge. Separate installed-look camera refusal remains Perception-owned; no live retry authorized, no Navigation or Surface Recovery changes.

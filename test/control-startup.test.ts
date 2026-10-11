@@ -225,3 +225,140 @@ test("SHARED-02 delayed nested reset cannot clear a newer owner's active control
   current.release();
   bot.emit("end", "offline");
 });
+
+test("SHARED-02 installed initial, finish and final clearance precede ownership reuse", async () => {
+  const bot = installedBot();
+  const clear = bot.clearControlStates.bind(bot);
+  const trace: string[] = [];
+  bot.clearControlStates = () => {
+    clear();
+    assert.ok(Object.values(bot.controlState).every((value) => !value));
+    trace.push("clear");
+  };
+  const runner = new ActionRunner(bot, () => {});
+  try {
+    const result = await runner.runExclusive(500, async () => {
+      trace.push("callback");
+    });
+    trace.push("published");
+    assert.equal(result.code, "ok");
+    assert.deepEqual(trace, [
+      "clear",
+      "callback",
+      "clear",
+      "clear",
+      "published",
+    ]);
+    assert.equal(
+      (await runner.run({ type: "inventory", timeoutMs: 100 })).code,
+      "ok",
+    );
+  } finally {
+    runner.close();
+    bot.emit("end", "offline");
+  }
+});
+
+test("SHARED-02 installed clearance during cancellation retains ownership through pending restoration", async () => {
+  const bot = installedBot();
+  const clear = bot.clearControlStates.bind(bot);
+  let clears = 0;
+  bot.clearControlStates = () => {
+    clear();
+    clears++;
+  };
+  let finishLook!: () => void;
+  // Only the asynchronous camera completion is faked; all clears use the installed plugin.
+  bot.look = async () => {
+    await new Promise<void>((resolve) => {
+      finishLook = resolve;
+    });
+  };
+  const runner = new ActionRunner(bot, () => {});
+  let published = false;
+  const pending = runner.runExclusive(500, async (scope) => {
+    try {
+      await new Promise<void>((resolve) =>
+        scope.signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+    } finally {
+      await scope.restoreLook(0, -0.8);
+    }
+  });
+  void pending.then(() => {
+    published = true;
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  runner.cancel();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  try {
+    assert.equal(clears, 2);
+    assert.equal(published, false);
+    assert.equal(
+      (await runner.run({ type: "inventory", timeoutMs: 100 })).code,
+      "busy",
+    );
+    assert.ok(Object.values(bot.controlState).every((value) => !value));
+    finishLook();
+    const result = await pending;
+    assert.equal(clears, 3);
+    assert.equal(result.code, "cancelled");
+    assert.equal(result.details?.cleanup, "complete");
+    assert.equal(
+      (await runner.run({ type: "inventory", timeoutMs: 100 })).code,
+      "ok",
+    );
+  } finally {
+    finishLook?.();
+    runner.close();
+    await pending;
+    bot.emit("end", "offline");
+  }
+});
+
+test("SHARED-02 original callback failure is distinct from later installed cleanup failure", async () => {
+  const bot = installedBot();
+  const clear = bot.clearControlStates.bind(bot);
+  const trace: string[] = [];
+  bot.clearControlStates = () => {
+    clear();
+    trace.push("clear");
+    if (trace.length > 1) {
+      trace.push("cleanup_failure");
+      throw new Error("PRIVATE cleanup");
+    }
+  };
+  const records: unknown[] = [];
+  const runner = new ActionRunner(bot, (event, data) => {
+    records.push({ event, data });
+  });
+  try {
+    const result = await runner.runExclusive(500, async () => {
+      trace.push("original_failure");
+      throw new Error("PRIVATE original");
+    });
+    assert.deepEqual(trace, [
+      "clear",
+      "original_failure",
+      "clear",
+      "cleanup_failure",
+      "clear",
+      "cleanup_failure",
+    ]);
+    assert.equal(result.code, "execution_error");
+    assert.equal(result.details?.completionCause, "execution_error");
+    assert.equal(result.details?.cleanupOperation, "clearControlStates");
+    assert.equal(result.details?.cleanup, "failed");
+    assert.equal(
+      JSON.stringify({ result, records }).includes("PRIVATE"),
+      false,
+    );
+    assert.equal(
+      (await runner.run({ type: "inventory", timeoutMs: 100 })).code,
+      "closed",
+    );
+  } finally {
+    runner.close();
+    bot.emit("end", "offline");
+  }
+});
