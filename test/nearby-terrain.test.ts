@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import type { Bot } from "mineflayer";
 import { observeNearbyTerrain } from "../src/perception/nearby-terrain.js";
+import { mergeObservations } from "../src/perception/merge-observations.js";
 import { planRoute } from "../src/navigation/planner.js";
 
 const require = createRequire(import.meta.url);
@@ -458,3 +459,60 @@ test("actual-start fixture preserves budget refusal and hidden layout uncertaint
     );
   }
 });
+
+for (const firstPitch of [0, -0.8])
+  test(`synthetic Task39 camera geometry: first pitch ${firstPitch}`, () => {
+    // Synthetic flat stone/air fixture, NOT a reconstruction of the live world.
+    // The second case is an HQ proposal only, not the production scan pattern.
+    const { bot, reads } = fixture();
+    Object.assign(bot.entity, { onGround: true, velocity: new Vec3(0, 0, 0) });
+    const poses = [
+      { yaw: Math.PI, pitch: firstPitch },
+      { yaw: 5.235987755982858, pitch: -0.3508111796508384 },
+      { yaw: 1.047197551196728, pitch: -0.3508111796508384 },
+    ];
+    // Synthetic provenance exercises the pure merger, not receipt validation.
+    const captured = poses.map((pose, i) => {
+      Object.assign(bot.entity, pose);
+      const before = reads.length;
+      const cells = observeNearbyTerrain(bot);
+      assert.equal(cells.length, 245);
+      assert.ok(reads.length - before < 4096);
+      return {
+        viewId: `view-${i}`,
+        sessionId: "synthetic-session",
+        scanId: "synthetic-scan",
+        capturedAtMs: i,
+        complete: true,
+        stationary: true,
+        pose: { position: { x: 0.5, y: 1, z: 0.5 }, ...pose },
+        cells,
+      };
+    });
+    const merged = mergeObservations(captured);
+    assert.equal(merged.ok, true);
+    if (!merged.ok) return;
+    assert.equal(merged.cells.length, 245);
+    assert.ok(merged.evidence.every((e) => !e.conflict));
+    const col = (x: number, z: number) =>
+      [0, 1, 2].map((y) => cell(merged.cells, x, y, z));
+    assert.deepEqual(col(0, -1), ["unknown", "unknown", "unknown"]);
+    for (const x of [-1, 1]) assert.equal(col(x, 0)[0], "support");
+    const planned = planRoute({
+      cells: merged.cells,
+      start: { x: 0, y: 1, z: 0 },
+      target: { x: 0, y: 1, z: 1 },
+    });
+    if (firstPitch === 0) {
+      assert.deepEqual(col(0, 0), ["unknown", "unknown", "unknown"]);
+      assert.equal(col(0, 1)[0], "unknown");
+      assert.equal(col(0, 2)[0], "unknown");
+      assert.equal(planned.code, "invalid_start");
+      assert.deepEqual(planned.segments, []);
+    } else {
+      for (const z of [0, 1, 2])
+        assert.deepEqual(col(0, z), ["support", "clear", "clear"]);
+      assert.equal(planned.code, "ok");
+      assert.equal(planned.segments.length, 1);
+    }
+  });
