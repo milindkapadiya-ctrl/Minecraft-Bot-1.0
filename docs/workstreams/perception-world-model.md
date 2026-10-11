@@ -1,5 +1,55 @@
 # Ethan — Perception & World Model
 
+## Task 24 offline Windows launcher investigation — 2026-10-10
+
+Started on `ethan-perception` at `73b8076760f7af109c298ea4df093aa484918088` with exactly the three expected uncommitted Task23 documentation paths; preserved them. The Task23 wrapper was an ephemeral Node `--input-type=module -e` invocation, recovered from this session's tool-call text, not persisted repository source. The real dedicated Start Server.cmd was inspected as text only. It changes cwd to its own directory and invokes the approved read-only Java software path with `-Xms1G -Xmx2G -jar server.jar nogui`; neither it nor server settings/world/runtime was modified or executed. Existing scripts/test-server.mjs is not appropriate here: it targets another directory and issues gameplay settings commands. It was inspected only, not used or changed.
+
+**Actual Task23 mechanism:** `spawn("cmd.exe", ["/d", "/c", '"Start Server.cmd"'], { cwd: dedicatedDirectory, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] })`; shell:false and windowsVerbatimArguments:false are Node defaults, with inherited environment. The outer PowerShell command ran Node; Node launched cmd.exe. Both output streams fed one 16000-character readiness buffer, but only start/readiness/exit status was printed and the buffer disappeared on exit. Readiness searched `/Done \([^)]+\)!/`; creation was not itself readiness. stdin forwarded only the operator's stop line. There was no startup deadline, graceful-shutdown deadline or EOF cleanup. Exit handling used exit, not close, so even newly retained tails could be incomplete. Task23's historical retained evidence is only launcherPID22872/exit1/no readiness and unchanged Minecraft log; no original stderr is recoverable.
+
+**Demonstrated defect, historical uncertainty preserved:** Windows fake fixtures reproduce exactly the Task23 argument structure. cmd.exe is created, but exits1 before executing the existing fake script; stderr reports the escaped quoted script name is not recognized. Node's default Windows argument escaping conflicts with the already-quoted shell command. In the same fixture, the corrected invocation below starts the batch, preserves its actual stdout/stderr and exit status, and handles cwd containing spaces, parentheses and ampersand. This proves a defect in the actual invocation mechanism and supplies an explanation consistent with Task23. It does not recover Task23 stderr or prove that no independent runtime issue will occur in a future real startup; no Minecraft/Java/world fault is established.
+
+### Corrected next-test launch procedure (not executed live)
+
+For a newly authorized attempt, repeat repository/runtime/world/process/port/lease prerequisites first. Use a trusted literal shell command and pass cwd as process configuration, never as shell text. The tested creation expression is:
+
+```js
+const server = spawn(
+  "cmd.exe",
+  ["/d", "/s", "/c", 'call ".\\Start Server.cmd"'],
+  {
+    cwd: approvedDedicatedDirectory,
+    shell: false,
+    windowsHide: true,
+    windowsVerbatimArguments: true,
+    stdio: ["pipe", "pipe", "pipe"],
+  },
+);
+```
+
+This command is fixed compiled/operator text, not user/model-generated shell input; do not interpolate an arbitrary path or arguments into it. Retain separate bounded stdout/stderr tails (the fake harness verifies2048 code units per stream). Attach stream/process/stdin error handlers immediately; retain selected error codes, executable/script identity, cwd, PID, exit code/signal, readiness and timeout stage. Await close so pipes drain. Publish sanitized selected failures, not unlimited output, environment, credentials or arbitrary server messages; preserve only necessary bounded local evidence for operator review. A child nonzero exit remains failure even if readiness appeared earlier.
+
+Use distinct invalid-cwd, spawn-error, child-exit-nonzero, exit-before-ready, readiness-timeout and output-error classifications. Start a finite readiness deadline (proposed60s), accepting only the actual Minecraft Done marker, never process creation or a fake marker. On timeout/interruption, send only stop through owned stdin and wait a separate bounded graceful shutdown interval (proposed30s). Clear timers/listeners and verify the owned Java process and port are gone before claiming cleanup. If they remain, report cleanup incomplete and stop; do not automatically terminate Java or unrelated processes. The fake test's500ms forced termination applies only to its own harmless cmd shell and must not be copied as live server cleanup. Retain owned stdin throughout startup and the diagnostic; handle operator interruption/EOF through graceful stop. No automatic relaunch or diagnostic retry.
+
+**Changes/evidence:** added only `test/windows-launch-invocation.test.ts` plus this handoff/RESUME/ROADMAP. Nine grouped Windows tests use temporary fake Start Server.cmd fixtures containing only cmd builtins, outside any Minecraft directory. They cover exact failure/corrected success, stdout/stderr/nonzero exit, cwd metacharacters, missing cwd/script/executable, readiness timeout, graceful stop, termination before readiness, injected output-capture error, unresponsive fake cleanup and bounded output. No port/network/Java/server/world operation occurs. Every spawned fake is checked dead after close; only an owned fake PID can be terminated, then temporary files are removed after checking their absolute directory stays under the temp root. Fake evidence is printed only for the harmless original-invocation reproduction.
+
+Validation: all9 focused tests passed on Windows/Node24.19.0; typecheck/build passed. New test and handoff formatting plus git diff --check passed; existing RESUME/ROADMAP formatting warnings retained. Application/diagnostic/shared code unchanged, so no broad test suite or pnpm check rerun; Task22's359 full tests remain historical evidence, not a new368-test claim. No dependencies, Minecraft execution, bot connection, real launcher/settings/world edits, staging, commit/push or branch operation.
+
+**Technically ready for another bounded single-view attempt: YES, conditional on a new explicit task/authorization and fresh prerequisites.** The next task must use the corrected creation expression and retain bounded failure evidence throughout owned graceful cleanup. No HQ architecture/shared-interface decision is needed for this local tooling correction; live three-view remains outside scope and requires separate HQ authorization. Stop for Ethan and the technical lead.
+
+## Task 23 blocked live startup — 2026-10-10
+
+Task 23 included standing authorization for one server start, one single-view diagnostic and owned cleanup. Began clean on `ethan-perception` at `73b8076760f7af109c298ea4df093aa484918088`; a read-only remote query verified the same published Task 22 checkpoint (seven expected paths), with no merge/rebase. Source inspection confirmed default/explicit single-view has no deliberate camera action, canonical session/lease shutdown, unchanged grounded gravity residual and authenticated single-use receipt guards. Build and launcher syntax passed; no source edits or full-suite rerun.
+
+Preflight verified only the dedicated `C:\Users\ejdth\AppData\Local\MinecraftAI\perception-test-server-26.1` and its existing world subdirectory, both ordinary directories outside OneDrive; level.dat presence only was checked, with no terrain/seed/player-data reads. Server26.1/protocol775/JAR SHA256 `98AB064389A8B34D48AC3D4C5ED858DD9433D0DFD1A12E1CBBDA916448D92994`, Temurin25.0.4.1, Node24.19.0 and Mineflayer4.39.0 were verified. Approved localhost127.0.0.1:25565, normal Survival, offline authentication, world name, EULA and disabled RCON/query/management/command-block settings matched Task13A. No competing Java/Minecraft server or SurvivalBot process/listener/connection lease was found; an exclusive read-only session.lock probe succeeded and released. Historical world/server files were not accessed; the approved launcher still references the historical read-only Java software path.
+
+**One launch invocation, blocked before readiness:** an owned Node child-process wrapper invoked the existing Start Server.cmd through cmd.exe in the dedicated cwd, with hidden window and retained stdin for graceful stop. Launcher PID22872 exited1 before any Minecraft Done/readiness marker. The wrapper filtered server output and did not retain stderr, so the precise cause is unavailable; this does not demonstrate Minecraft, Java or Perception incompatibility. Invocation/quoting remains a possible harness issue, not a verified diagnosis. Following Task23's runtime-failure stop rule, no launch retry, SurvivalBot connection, diagnostic or gameplay action occurred. No initial pose/health/velocity, stable interval, receipt, acquisition provenance, terrain counts or landing/braking evidence was obtained. Live single-view validation: **NO**.
+
+Post-check verified zero Java server/diagnostic processes and zero port25565 listeners, no bot connection lease, and another released exclusive read-only world-lock probe. Server latest.log remained dated2026-10-08 23:28:22 Eastern, with no new live server log. Server.properties SHA256 stayed `D5D9ED52F6CD7B1E0D68526204EE64160B370292577D857D2F25C159D825A05F`. The launch wrapper exited; no running owned server remained to save/stop and no bot/controller cleanup was invoked. This is confirmed absence of leftovers, not evidence of graceful Minecraft shutdown or successful live control cleanup.
+
+Documentation-only changes: this handoff, RESUME and ROADMAP. No application/shared code, configuration, dependencies, worlds or Git publication changed. Scoped handoff formatting and git diff --check passed; existing RESUME/ROADMAP formatting issues remain. Previous Task22 offline359-test evidence was not rerun or relabeled live.
+
+**Next bounded task:** diagnose the server-launch harness offline, retaining sanitized startup failure evidence and verifying Windows command invocation against a harmless fake launcher, without starting Minecraft. Any subsequent live attempt needs a new explicit task/authorization; do not reuse this attempt or retry unattended. No shared-interface/HQ architecture decision is required for that local harness investigation; live three-view still requires separate HQ authorization. Stop for Ethan and the technical lead.
+
 ## Task 22 offline diagnostic integration — 2026-10-10
 
 Started clean on `ethan-perception` at `55f7e923be480cae6b10a3bf5887079b46875f45`; a read-only GitHub branch query verified the same published SHA and the six Task 21B paths. No merge/rebase was in progress. Source changes are limited to terrain-diagnostic.ts, observe-terrain.mjs and terrain-diagnostic.test.ts; the existing scanner, controller, session, navigation and Surface Recovery are unchanged.
