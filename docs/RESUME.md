@@ -142,3 +142,14 @@ Isolated branch will-shared-actionrunner implements HQ-approved prototype isolat
 ## SHARED-01 PR #3 cleanup safety revision — 2026-10-08
 
 Reproduced both HQ cleanup findings before fixes. Composite ownership now persists through asynchronous cleanup/restoration (500ms bound); failed required cleanup or expired grace permanently closes the canonical controller. Authoritative shutdown revokes access immediately and does not await hung callbacks. Seven new offline regressions; focused63/63, full203/203, TypeScript/build pass. Full formatting retains only inherited RESUME/TEAM_WORKFLOW failures. No server connection, source changes to paused recovery or modification of the separate navigation checkout. See [shared ownership contract](shared-action-ownership.md); PR #3 requires re-review. Remaining manual check: real cleanup-failure disconnect.
+
+
+## SHARED-02 startup clearance checkpoint — 2026-10-10
+
+Isolated will-actionrunner-startup-fix based on main0a331f6 reproduces the installed Mineflayer clearControlStates -> setControlState(false) call chain being rejected by a valid stationary owner. Startup fails before the callback; repeated cleanup also fails and closes the controller. Minimal private guard adjustment permits only synchronous nested false resets during owned clear, with unchanged fail-closed/stale-owner/shutdown behavior and no API/dependency changes. Six new groups; full209/209, focused45/45, TypeScript/build pass; inherited RESUME/TEAM_WORKFLOW formatting only. See shared-action-ownership.md for evidence, published scanner integration and independent installed-look unexpected_camera blocker.
+
+Navigation remains will-navigation-live/d21de74, all eight proposal paths byte-preserved in .git/navigation-checkpoints/shared02-nav05f-partial. NAV-05F remains interrupted/incomplete, including known fake-entity typecheck and session-test failures; no Navigation work was resumed or edited. No live test/connection or main/Perception branch modification. Review the controller fix independently; do not claim a successful full live scan until Ethan/HQ resolves the separate camera refusal and authorizes testing.
+
+## SHARED-02 final regression review — 2026-10-10
+
+Existing fix050bd727 preserved; Ethan's published4edfa0d independently reproduces the same offline mechanism, without proving the lost historical live exception/order. Added three installed-plugin tests covering initial/finish/final clearance order, pending restoration cancellation and primary-error versus cleanup-error ordering. Production code unchanged. Full212/212, focused48/48 and isolated combined scanner280/280 pass; TypeScript/build pass, inherited RESUME/TEAM_WORKFLOW formatting failures remain. See shared-action-ownership.md for all fifteen requirement mappings and the unresolved Perception camera refusal. Submit for independent review, never merge or retry live under this task. Navigation proposals remain untouched.
