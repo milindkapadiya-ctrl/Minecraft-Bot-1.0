@@ -517,7 +517,7 @@ async function installedScan(start: Pose, fault = "") {
       if (fault === "dimension") f.raw.game.dimension = "the_nether";
       if (fault === "cancel") abort.abort();
     }
-    if (fault === "restore" && looks === 3) f.raw.entity.yaw += 1e-12;
+    if (fault === "restore" && looks === 4) f.raw.entity.yaw += 1e-12;
     actualLooks.push(pose(f.bot));
   };
   f.bot.clearControlStates = () => {
@@ -607,7 +607,7 @@ async function installedScan(start: Pose, fault = "") {
             },
             captured[i],
           );
-          if (i > 0) assert.deepEqual(captured[i], actualLooks[i - 1]);
+          assert.deepEqual(captured[i], actualLooks[i]);
         }
         assert.equal(
           new Set(result.observation.views.map((v) => v.viewId)).size,
@@ -615,7 +615,7 @@ async function installedScan(start: Pose, fault = "") {
         );
       }
       assert.equal(captures, 3);
-      assert.equal(looks, 3);
+      assert.equal(looks, 4);
       assert.equal(clears, 3);
       assert.ok(currentGuard(pose(f.bot), start));
       assert.equal(

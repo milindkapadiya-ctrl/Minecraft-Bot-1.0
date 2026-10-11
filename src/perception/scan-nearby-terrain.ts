@@ -166,12 +166,22 @@ export async function scanNearbyTerrain(
           );
         const wait = () => waitForReceipt(context, scope, now, guard, refuse);
         for (let i = 0; i < 3; i++) {
-          if (i > 0) {
+          {
             const beforeLook = guard().pose;
-            const yaw = wrap(
-              initial.pose.yaw + ((i === 1 ? 1 : -1) * 2 * Math.PI) / 3,
-            );
-            const pitch = Math.max(-1, Math.min(-0.35, initial.pose.pitch));
+            const yaw =
+              i === 0
+                ? initial.pose.yaw
+                : wrap(
+                    initial.pose.yaw + ((i === 1 ? 1 : -1) * 2 * Math.PI) / 3,
+                  );
+            // -0.8 radians below the horizon includes centered start-cell
+            // rays under the observer's 0.8 pitch half-width. Never raise an
+            // already steeper original view; visibility still requires a ray.
+            // Later targets remain anchored to the ORIGINAL camera, not view 0.
+            const pitch =
+              i === 0
+                ? Math.min(-0.8, initial.pose.pitch)
+                : Math.max(-1, Math.min(-0.35, initial.pose.pitch));
             turning = true;
             try {
               await ownedLook(scope, yaw, pitch);

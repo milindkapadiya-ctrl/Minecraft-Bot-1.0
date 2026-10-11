@@ -12,6 +12,8 @@ import {
   type ScanResult,
 } from "../src/perception/scan-nearby-terrain.js";
 import { observeNearbyTerrain } from "../src/perception/nearby-terrain.js";
+import { mergeObservations } from "../src/perception/merge-observations.js";
+import { verifiedLookPose } from "../src/perception/camera-pose.js";
 import { GROUNDED_GRAVITY_RESIDUAL } from "../src/perception/stationarity.js";
 import { planRoute } from "../src/navigation/planner.js";
 import type { OwnAir } from "../src/minecraft/air-compat.js";
@@ -43,6 +45,7 @@ class ScanBot extends EventEmitter {
   clearHook = () => {};
   lookHook: (n: number) => Promise<void> = async () => {};
   mismatchRestoration = false;
+  mismatchInitial = false;
   clearControlStates() {
     this.clearHook();
     this.clears++;
@@ -58,11 +61,12 @@ class ScanBot extends EventEmitter {
     this.entity.yaw +=
       Math.round((yaw - this.entity.yaw) / -0.0026179938779913314) *
       -0.0026179938779913314;
-    if (this.mismatchRestoration && this.looks.length >= 3)
+    if (this.mismatchRestoration && this.looks.length >= 4)
       this.entity.yaw += 0.001;
     this.entity.pitch +=
       Math.round((pitch - this.entity.pitch) / -0.0026179938779913314) *
       -0.0026179938779913314;
+    if (this.mismatchInitial && this.looks.length === 1) this.entity.pitch = 0;
   }
   blockAt(p: { y: number }) {
     this.reads++;
@@ -165,8 +169,8 @@ test("completed production scan uses one reservation, three fresh views, truthfu
   );
   assert.equal(captures, 3);
   assert.equal(f.records.filter((r) => r.event === "action_started").length, 1);
-  assert.equal(f.raw.looks.length, 3);
-  assert.deepEqual(f.raw.looks[2], initial);
+  assert.equal(f.raw.looks.length, 4);
+  assert.deepEqual(f.raw.looks[3], initial);
   assert.equal(f.raw.entity.yaw, initial.yaw);
   assert.equal(f.raw.entity.pitch, initial.pitch);
   assert.equal(result.dimension, "overworld");
@@ -229,6 +233,268 @@ test("completed production scan uses one reservation, three fresh views, truthfu
   assert.equal((await f.runner.run(request)).code, "ok");
 });
 
+test("downward first look precedes capture; original yaw and later targets are preserved", async () => {
+  for (const pitch of [0, -1.2, -Math.PI / 2]) {
+    const f = fixture();
+    const original = { yaw: Math.PI, pitch };
+    Object.assign(f.raw.entity, original);
+    const measured: { yaw: number; pitch: number }[] = [];
+    const r = success(
+      await f.drive(
+        scanNearbyTerrain(f.context, f.runner, {
+          ...f.options,
+          observe: (bot) => {
+            assert.equal(f.raw.looks.length, measured.length + 1);
+            assert.throws(() => bot.look(0, 0), /control_ownership/);
+            measured.push({ yaw: bot.entity.yaw, pitch: bot.entity.pitch });
+            return observeNearbyTerrain(bot);
+          },
+        }),
+      ),
+    );
+    assert.deepEqual(f.raw.looks[0], {
+      yaw: original.yaw,
+      pitch: Math.min(-0.8, pitch),
+    });
+    for (const i of [1, 2]) {
+      const yaw = original.yaw + ((i === 1 ? 1 : -1) * 2 * Math.PI) / 3;
+      assert.deepEqual(f.raw.looks[i], {
+        yaw: ((yaw % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI),
+        pitch: Math.max(-1, Math.min(-0.35, pitch)),
+      });
+    }
+    for (let i = 0; i < 3; i++) {
+      assert.ok(
+        verifiedLookPose(
+          i === 0 ? original : measured[i - 1]!,
+          f.raw.looks[i]!,
+          measured[i]!,
+        ),
+      );
+      assert.deepEqual(r.observation.views[i]!.pose, {
+        position: { x: 0.5, y: 64, z: 0.5 },
+        ...measured[i],
+      });
+    }
+    if (pitch === 0) {
+      assert.equal(measured[0]!.pitch, -0.8011061266653474);
+      assert.notEqual(measured[0]!.pitch, -0.8);
+    }
+    assert.equal(measured.length, 3);
+    assert.equal(f.raw.looks.length, 4);
+    assert.deepEqual(f.raw.looks[3], original);
+    assert.equal(f.raw.entity.yaw, original.yaw);
+    assert.equal(f.raw.entity.pitch, original.pitch);
+    f.clean();
+  }
+});
+
+test("physics samples during initial look cannot authorize post-look capture", async () => {
+  const f = fixture();
+  f.raw.entity.pitch = 0;
+  let release!: () => void;
+  f.raw.lookHook = async (n) => {
+    if (n === 1)
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+  };
+  let captures = 0;
+  const p = scanNearbyTerrain(f.context, f.runner, {
+    ...f.options,
+    observe: (bot) => {
+      captures++;
+      return observeNearbyTerrain(bot);
+    },
+  });
+  await turn();
+  for (let i = 0; i < 5; i++) await f.tick();
+  assert.equal(captures, 0);
+  release();
+  await turn();
+  for (let i = 0; i < 4; i++) await f.tick();
+  assert.equal(captures, 0);
+  await f.tick();
+  assert.equal(captures, 1);
+  const r = success(await f.drive(p));
+  assert.equal(captures, 3);
+  assert.ok(r.acquisitions[0]!.readiness.startedAtMs > 250);
+  f.clean();
+});
+
+test("first-look mismatch and incomplete post-look samples refuse without publication", async () => {
+  for (const fault of ["mismatch", "partial"] as const) {
+    const f = fixture();
+    f.raw.entity.pitch = 0;
+    const original = { yaw: f.raw.entity.yaw, pitch: f.raw.entity.pitch };
+    f.raw.mismatchInitial = fault === "mismatch";
+    let captures = 0;
+    const p = scanNearbyTerrain(f.context, f.runner, {
+      ...f.options,
+      observe: (bot) => {
+        captures++;
+        return observeNearbyTerrain(bot);
+      },
+    });
+    await turn();
+    if (fault === "partial") {
+      for (let i = 0; i < 4; i++) await f.tick();
+      f.advance(1500);
+      await f.tick();
+    }
+    const r = await p;
+    assert.equal(r.ok, false);
+    if (!r.ok && fault === "mismatch")
+      assert.equal(r.code, "unexpected_camera");
+    assert.equal(captures, 0);
+    assert.equal(Object.hasOwn(r, "observation"), false);
+    assert.equal(f.raw.entity.yaw, original.yaw);
+    assert.equal(f.raw.entity.pitch, original.pitch);
+    f.clean();
+  }
+});
+
+test("observer failure in any of the three views restores the original camera and publishes no batch", async () => {
+  for (const failedView of [1, 2, 3]) {
+    const f = fixture();
+    f.raw.entity.pitch = 0;
+    const original = { yaw: f.raw.entity.yaw, pitch: f.raw.entity.pitch };
+    let captures = 0;
+    const r = await f.drive(
+      scanNearbyTerrain(f.context, f.runner, {
+        ...f.options,
+        observe: (bot) => {
+          if (++captures === failedView)
+            throw Error("synthetic observer failure");
+          return observeNearbyTerrain(bot);
+        },
+      }),
+    );
+    assert.equal(r.ok, false);
+    assert.equal(captures, failedView);
+    assert.equal(Object.hasOwn(r, "observation"), false);
+    assert.equal(f.raw.entity.yaw, original.yaw);
+    assert.equal(f.raw.entity.pitch, original.pitch);
+    assert.equal((await f.runner.run(request)).code, "ok");
+    f.clean();
+  }
+});
+
+test("synthetic old/new coverage comparison retains occluded and unloaded start refusal", async (t) => {
+  for (const layout of ["flat", "unloaded-floor", "occluded-floor"] as const) {
+    const f = fixture();
+    const original = { yaw: Math.PI, pitch: 0 };
+    Object.assign(f.raw.entity, original);
+    const read = f.raw.blockAt.bind(f.raw);
+    f.raw.blockAt = (p: { x?: number; y: number; z?: number }) => {
+      if (p.x === 0 && p.z === 0) {
+        if (layout === "unloaded-floor" && p.y === 63) return null as never;
+        if (layout === "occluded-floor" && p.y === 64)
+          return { name: "stone", shapes: [[0, 0, 0, 1, 1, 1]] };
+      }
+      return read(p);
+    };
+    // OLD is a synthetic geometry replay only, using observer-produced cells.
+    // NEW runs the production scanner/receipts/controller on that same fixture.
+    const quantum = depsForCamera.fromNotchianPitch(0.15);
+    let before = original;
+    const oldViews = [0, 1, 2].map((i) => {
+      if (i > 0) {
+        const y = original.yaw + ((i === 1 ? 1 : -1) * 2 * Math.PI) / 3;
+        const yaw = ((y % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+        before = {
+          yaw: before.yaw + Math.round((yaw - before.yaw) / quantum) * quantum,
+          pitch:
+            before.pitch +
+            Math.round((-0.35 - before.pitch) / quantum) * quantum,
+        };
+        Object.assign(f.raw.entity, before);
+      }
+      return {
+        viewId: `old-${i}`,
+        sessionId: "synthetic",
+        scanId: "old",
+        capturedAtMs: i,
+        complete: true,
+        stationary: true,
+        pose: { position: { x: 0.5, y: 64, z: 0.5 }, ...before },
+        cells: observeNearbyTerrain(f.bot),
+      };
+    });
+    const old = mergeObservations(oldViews);
+    assert.ok(old.ok);
+    if (!old.ok) return;
+    Object.assign(f.raw.entity, original);
+    const r = success(
+      await f.drive(scanNearbyTerrain(f.context, f.runner, f.options)),
+    );
+    const fresh = r.observation;
+    const column = (cells: typeof fresh.cells, x: number, z: number) =>
+      [63, 64, 65].map(
+        (y) => cells.find((c) => c.x === x && c.y === y && c.z === z)!.terrain,
+      );
+    assert.deepEqual(column(old.cells, 0, 0), [
+      "unknown",
+      "unknown",
+      "unknown",
+    ]);
+    assert.deepEqual(column(fresh.cells, 0, -1), [
+      "unknown",
+      "unknown",
+      "unknown",
+    ]);
+    if (layout === "flat") {
+      for (const z of [0, 1, 2])
+        assert.deepEqual(column(fresh.cells, 0, z), [
+          "support",
+          "clear",
+          "clear",
+        ]);
+    } else {
+      assert.equal(column(fresh.cells, 0, 0)[0], "unknown");
+      assert.equal(
+        planRoute({
+          cells: fresh.cells,
+          start: { x: 0, y: 64, z: 0 },
+          target: { x: 0, y: 64, z: 1 },
+        }).code,
+        "invalid_start",
+      );
+    }
+    const gained = fresh.cells.filter(
+      (c, i) => c.terrain !== "unknown" && old.cells[i]!.terrain === "unknown",
+    );
+    const lost = old.cells.filter(
+      (c, i) =>
+        c.terrain !== "unknown" && fresh.cells[i]!.terrain === "unknown",
+    );
+    assert.ok(gained.length > 0);
+    assert.ok(
+      lost.length > 0,
+      "downward capture gives up upper forward coverage",
+    );
+    assert.ok(fresh.evidence.every((e) => !e.conflict));
+    t.diagnostic(
+      JSON.stringify({
+        layout,
+        oldKnown: old.cells.filter((c) => c.terrain !== "unknown").length,
+        newKnown: fresh.cells.filter((c) => c.terrain !== "unknown").length,
+        gained: gained.length,
+        lost: lost.length,
+        gainedY: [...new Set(gained.map((c) => c.y))],
+        lostY: [...new Set(lost.map((c) => c.y))],
+        oldStart: column(old.cells, 0, 0),
+        newStart: column(fresh.cells, 0, 0),
+        oldSouthLanding: column(old.cells, 0, 1),
+        newSouthLanding: column(fresh.cells, 0, 1),
+        oldSouthBraking: column(old.cells, 0, 2),
+        newSouthBraking: column(fresh.cells, 0, 2),
+      }),
+    );
+    f.clean();
+  }
+});
+
 test("camera pattern is relative and bounded even at vertical initial pitch; grounded residual is supported", async () => {
   const f = fixture();
   f.raw.entity.yaw = 5.9;
@@ -237,10 +503,16 @@ test("camera pattern is relative and bounded even at vertical initial pitch; gro
   const r = success(
     await f.drive(scanNearbyTerrain(f.context, f.runner, f.options)),
   );
-  assert.equal(r.observation.views[0]!.pose.pitch, Math.PI / 2);
+  assert.equal(f.raw.looks[0]!.pitch, -0.8);
+  assert.equal(f.raw.looks[0]!.yaw, 5.9);
+  const firstPitch =
+    Math.PI / 2 +
+    Math.round((-0.8 - Math.PI / 2) / depsForCamera.fromNotchianPitch(0.15)) *
+      depsForCamera.fromNotchianPitch(0.15);
+  assert.equal(r.observation.views[0]!.pose.pitch, firstPitch);
   const increment = depsForCamera.fromNotchianPitch(0.15);
   const actualPitch =
-    Math.PI / 2 + Math.round((-0.35 - Math.PI / 2) / increment) * increment;
+    firstPitch + Math.round((-0.35 - firstPitch) / increment) * increment;
   assert.equal(r.observation.views[1]!.pose.pitch, actualPitch);
   assert.equal(r.observation.views[2]!.pose.pitch, actualPitch);
   assert.ok(f.raw.looks.every((p) => p.yaw >= 0 && p.yaw < 2 * Math.PI));
@@ -369,7 +641,7 @@ test("cancellation between views, after third capture and during restoration nev
     const f = fixture();
     let captures = 0;
     f.raw.lookHook = async (n) => {
-      if ((stage === "between" && n === 1) || (stage === "restore" && n === 3))
+      if ((stage === "between" && n === 2) || (stage === "restore" && n === 4))
         f.signal.abort();
     };
     const p = scanNearbyTerrain(f.context, f.runner, {
@@ -496,7 +768,7 @@ test("failed looks, restoration or controller cleanup prevent map publication an
   for (const fault of ["look", "restore", "cleanup"] as const) {
     const f = fixture();
     f.raw.lookHook = async (n) => {
-      if ((fault === "look" && n === 1) || (fault === "restore" && n >= 3))
+      if ((fault === "look" && n === 1) || (fault === "restore" && n >= 4))
         throw Error("SECRET");
     };
     if (fault === "cleanup")
@@ -564,7 +836,7 @@ test("success waits for restoration; competing actions remain busy until cleanup
   let release!: () => void;
   let published = false;
   f.raw.lookHook = async (n) => {
-    if (n === 3)
+    if (n === 4)
       await new Promise<void>((resolve) => {
         release = resolve;
       });
@@ -574,7 +846,7 @@ test("success waits for restoration; competing actions remain busy until cleanup
     published = true;
   });
   await turn();
-  for (let i = 0; i < 20 && f.raw.looks.length < 3; i++) await f.tick();
+  for (let i = 0; i < 20 && f.raw.looks.length < 4; i++) await f.tick();
   assert.equal(published, false);
   assert.equal((await f.runner.run(request)).code, "busy");
   release();
@@ -689,7 +961,7 @@ test("cancellation between captures restores under exclusive cleanup and permits
   const initial = { yaw: f.raw.entity.yaw, pitch: f.raw.entity.pitch };
   let release!: () => void;
   f.raw.lookHook = async (n) => {
-    if (n === 2)
+    if (n === 3)
       await new Promise<void>((resolve) => {
         release = resolve;
       });
@@ -697,11 +969,11 @@ test("cancellation between captures restores under exclusive cleanup and permits
   const p = scanNearbyTerrain(f.context, f.runner, f.options);
   await turn();
   for (let i = 0; i < 6; i++) await f.tick();
-  assert.equal(f.raw.looks.length, 1);
+  assert.equal(f.raw.looks.length, 2);
   f.signal.abort();
   await turn();
   assert.equal((await f.runner.run(request)).code, "busy");
-  assert.equal(f.raw.looks.length, 2);
+  assert.equal(f.raw.looks.length, 3);
   release();
   assert.equal((await p).ok, false);
   assert.deepEqual(

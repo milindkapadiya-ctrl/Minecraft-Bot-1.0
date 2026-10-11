@@ -1256,7 +1256,7 @@ test("explicit scanner runs one canonical reservation, three fresh views and res
   );
   assert.equal((await finishScan(f)).exitCode, 0);
   assert.equal(f.calls(), 3);
-  assert.equal(f.bot.looks.length, 3);
+  assert.equal(f.bot.looks.length, 4);
   assert.equal(f.bot.entity.yaw, -Math.PI / 2);
   assert.equal(f.bot.entity.pitch, -0.8);
   const operations = f.records.filter(
@@ -1425,6 +1425,7 @@ test("pending camera cancellation cannot publish success or issue later looks", 
       return observeNearbyTerrain(b);
     },
   });
+  f.bot.hangLook = true;
   f.initialize();
   const timer = setInterval(() => {
     f.tick();
@@ -1435,7 +1436,7 @@ test("pending camera cancellation cannot publish success or issue later looks", 
   } finally {
     clearInterval(timer);
   }
-  assert.equal(f.calls(), 1);
+  assert.equal(f.calls(), 0);
   assert.equal(f.bot.looks.length, 1);
   scanFailure(f);
 });
@@ -1583,11 +1584,12 @@ test("scanner operation deadline bounds an unsettled look and preserves faulted 
       return observeNearbyTerrain(b);
     },
   });
+  f.bot.hangLook = true;
   f.initialize();
   const started = performance.now();
   assert.equal((await finishScan(f)).exitCode, 1);
   assert.ok(performance.now() - started < 7000);
-  assert.equal(f.calls(), 1);
+  assert.equal(f.calls(), 0);
   assert.equal(f.bot.looks.length, 1);
   const failure = scanFailure(f);
   assert.equal(failure.cleanup, "restoration_failed");
