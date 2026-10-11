@@ -1,5 +1,21 @@
 # Ethan — Perception & World Model
 
+## Task 22 offline diagnostic integration — 2026-10-10
+
+Started clean on `ethan-perception` at `55f7e923be480cae6b10a3bf5887079b46875f45`; a read-only GitHub branch query verified the same published SHA and the six Task 21B paths. No merge/rebase was in progress. Source changes are limited to terrain-diagnostic.ts, observe-terrain.mjs and terrain-diagnostic.test.ts; the existing scanner, controller, session, navigation and Surface Recovery are unchanged.
+
+Single-view remains the default and performs no deliberate look. Three-view requires explicit `mode: "three-view"` or launcher `--mode=three-view`. Strict launcher selection and existing configuration parsing reject invalid input before connection. No launcher was executed. The ready callback acquires the session's existing controller through ActionRunner's canonical constructor, already supported and tested by Will's session code; it does not create a second controller. Default Mineflayer factory preserves the existing connection lease.
+
+After unchanged startup admission, startup-only pose sampling/deadline and its unused receipt are stopped. Existing health/air/correction/lifecycle monitoring remains. One production scanner invocation owns fresh three-view receipts, camera actions, restoration and cleanup. A local abort signal carries diagnostic cancellation/refusal through awaits. The diagnostic waits for the scanner result before requesting supported session shutdown, with no independent control clearing. Explicit scanner mode uses a 7500 ms session duration to fit the unchanged 1500 ms startup, 5000 ms scan and 500 ms cleanup limits; single-view retains 3000 ms. Controller cleanup faults remain closed.
+
+Successful output retains actual-start/landing/braking and classification summaries, adding mode/completion/known-cell count and bounded three-view pose/time/readiness provenance, actual scan/session identity and initial/restored orientation. No raw terrain dump or lasting freshness is claimed. Failures report sanitized state/code, invocation and known cleanup/fault status, with no partial map/counts. Historical scan evidence remains subject to Will's refresh/revalidation decisions after movement; Milind's interface is unchanged.
+
+Added 12 grouped offline integration tests (53 diagnostic tests total). They cover defaults/selection/config rejection, canonical identity and competing action, three independent fresh acquisitions, publication after restoration/cleanup, invalid/partial/conflicting/unknown evidence, cancellation/disconnect/health/motion/ground/pose/dimension/respawn changes, cleanup poison and bounded hanging looks. A mocked default-factory test verifies reservation across scanning, blocks a second diagnostic and releases only after end; direct unowned look is rejected. No shared APIs or safety thresholds changed.
+
+Validation: 195 focused Perception/actions/session/lease tests passed, then the additional operation-deadline test passed (196 distinct focused tests). The one full `pnpm check` passed typecheck/build/all 359 tests, then failed the same 29 pre-existing formatting warnings. Scoped source/test/launcher/contract/handoff formatting and script syntax checks passed; RESUME/ROADMAP retain existing formatting warnings. No full-check pass or live compatibility is claimed. No staging, commit, push, branch/version/dependency change or Minecraft execution.
+
+**Offline integration ready: YES.** Next bounded task: separately HQ-authorized one three-view diagnostic in Ethan's dedicated world, after independently verifying runtime/exclusive access and safety prerequisites, with no retry. Verify real settling, fresh capture timing, camera restoration and useful start/landing/braking coverage. Task 22 authorizes no live use; stop for Ethan and the technical lead.
+
 ## Task 21B completed stationary scanner — 2026-10-10
 
 Started clean on `ethan-perception` at `b0225cfd2b9e1351895ec3850159136b4facc10c`. The current GitHub branch SHA was independently verified identical. Task 21A is committed/pushed; its stationarity, capture receipt and approved controller are preserved. No branch change, merge, staging or publication occurred.

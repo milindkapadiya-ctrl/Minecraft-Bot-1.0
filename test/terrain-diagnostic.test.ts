@@ -4,7 +4,13 @@ import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import type { Bot } from "mineflayer";
 import { readConfig } from "../src/config.js";
-import { runTerrainDiagnostic } from "../src/perception/terrain-diagnostic.js";
+import {
+  runTerrainDiagnostic,
+  diagnosticMode,
+  type DiagnosticMode,
+} from "../src/perception/terrain-diagnostic.js";
+import { ActionRunner } from "../src/actions/runner.js";
+import { reserveConnection } from "../src/minecraft/connection-lease.js";
 import { observeNearbyTerrain } from "../src/perception/nearby-terrain.js";
 import {
   mergeObservations,
@@ -36,6 +42,10 @@ class FakeBot extends EventEmitter {
   quits = 0;
   cleared = 0;
   hang = false;
+  allowCamera = false;
+  looks: { yaw: number; pitch: number }[] = [];
+  hangLook = false;
+  failClear = false;
   blockAt(p: { y: number }) {
     return {
       name: p.y === 63 ? "stone" : "air",
@@ -43,14 +53,19 @@ class FakeBot extends EventEmitter {
     };
   }
   clearControlStates() {
+    if (this.failClear) throw Error("SECRET cleanup error");
     this.cleared++;
     this.controlState.forward = false;
   }
   setControlState() {
     assert.fail("movement command");
   }
-  look() {
-    assert.fail("camera command");
+  async look(yaw: number, pitch: number) {
+    if (!this.allowCamera) assert.fail("camera command");
+    this.looks.push({ yaw, pitch });
+    if (this.hangLook) await new Promise(() => {});
+    this.entity.yaw = yaw;
+    this.entity.pitch = pitch;
   }
   dig() {
     assert.fail("interaction command");
@@ -68,6 +83,7 @@ class FakeBot extends EventEmitter {
 }
 function setup(
   options: {
+    mode?: DiagnosticMode;
     observe?: typeof observeNearbyTerrain;
     signal?: AbortSignal;
     spawn?: boolean;
@@ -77,6 +93,7 @@ function setup(
   } = {},
 ) {
   const bot = new FakeBot();
+  bot.allowCamera = options.mode === "three-view";
   let readinessTime = 0;
   const records: { event: string; data: Record<string, unknown> }[] = [];
   let calls = 0;
@@ -85,7 +102,9 @@ function setup(
     (event, data = {}) => records.push({ event, data }),
     {
       ...options,
-      readinessNow: options.readinessNow ?? (() => (readinessTime += 50)),
+      readinessNow:
+        options.readinessNow ??
+        (bot.allowCamera ? () => readinessTime : () => (readinessTime += 50)),
       factory: (input) => {
         assert.equal(input.username, "SurvivalBot");
         assert.equal(input.version, "26.1");
@@ -106,10 +125,17 @@ function setup(
       metadata: [{ key: 1, type: "int", value: 300 }],
     });
     if (options.ticks !== false) {
-      for (let i = 0; i < 6; i++) bot.emit("physicsTick");
+      for (let i = 0; i < 6; i++) {
+        if (bot.allowCamera) readinessTime += 50;
+        bot.emit("physicsTick");
+      }
     }
   };
-  return { bot, records, result, initialize, calls: () => calls };
+  const tick = () => {
+    readinessTime += 50;
+    bot.emit("physicsTick");
+  };
+  return { bot, records, result, initialize, tick, calls: () => calls };
 }
 
 function motionEvidence(f: ReturnType<typeof setup>) {
@@ -1138,4 +1164,427 @@ test("first refusal snapshot stays low even if later telemetry changes before lo
     threshold: 6,
   });
   assert.equal(f.calls(), 0);
+});
+
+async function finishScan(f: ReturnType<typeof setup>) {
+  const timer = setInterval(f.tick, 2);
+  try {
+    return await f.result;
+  } finally {
+    clearInterval(timer);
+  }
+}
+function scanFailure(f: ReturnType<typeof setup>) {
+  assert.equal(
+    f.records.some((r) => r.event === "terrain_diagnostic_observation"),
+    false,
+  );
+  const data = f.records.find(
+    (r) => r.event === "terrain_diagnostic_failed",
+  )!.data;
+  assert.equal(data.mode, "three-view");
+  assert.equal(data.complete, false);
+  for (const key of ["cells", "counts", "views", "actualStart"])
+    assert.equal(key in data, false);
+  assert.equal(JSON.stringify(data).includes("SECRET"), false);
+  assert.equal(f.bot.listenerCount("physicsTick"), 0);
+  assert.equal(f.bot.quits <= 1, true);
+  return data;
+}
+
+test("mode selection is explicit and malformed mode/configuration never connects", async () => {
+  assert.equal(diagnosticMode([]), "single-view");
+  assert.equal(diagnosticMode(["--mode=single-view"]), "single-view");
+  assert.equal(diagnosticMode(["--mode=three-view"]), "three-view");
+  for (const args of [
+    ["three-view"],
+    ["--mode=unknown"],
+    ["--mode=three-view", "extra"],
+  ])
+    assert.throws(() => diagnosticMode(args));
+  let connections = 0;
+  const result = await runTerrainDiagnostic(readConfig({}), () => {}, {
+    mode: "unknown" as DiagnosticMode,
+    factory: () => {
+      connections++;
+      throw Error();
+    },
+  });
+  assert.equal(result.reason, "invalid_diagnostic_mode");
+  for (const env of [
+    { MC_HOST: "example.com" },
+    { MC_PORT: "0" },
+    { MC_VERSION: "old" },
+  ]) {
+    assert.throws(() => readConfig(env));
+  }
+  assert.equal(connections, 0);
+});
+
+test("default and explicit single view preserve output without camera actions", async () => {
+  for (const mode of [undefined, "single-view"] as const) {
+    const f = setup(mode ? { mode } : {});
+    f.initialize();
+    assert.equal((await f.result).exitCode, 0);
+    assert.equal(f.calls(), 1);
+    assert.equal(f.bot.looks.length, 0);
+    const output = f.records.find(
+      (r) => r.event === "terrain_diagnostic_observation",
+    )!.data;
+    assert.equal(output.mode, "single-view");
+    assert.equal(output.viewCount, 1);
+    assert.equal("acquisitions" in output, false);
+  }
+});
+
+test("explicit scanner runs one canonical reservation, three fresh views and restoration before publication", async () => {
+  const f = setup({ mode: "three-view" });
+  f.initialize();
+  const runner = new ActionRunner(f.bot as unknown as Bot, () =>
+    assert.fail("second logger"),
+  );
+  assert.equal(runner, new ActionRunner(f.bot as unknown as Bot, () => {}));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    (await runner.run({ type: "inspect", timeoutMs: 100 })).code,
+    "busy",
+  );
+  assert.equal((await finishScan(f)).exitCode, 0);
+  assert.equal(f.calls(), 3);
+  assert.equal(f.bot.looks.length, 3);
+  assert.equal(f.bot.entity.yaw, -Math.PI / 2);
+  assert.equal(f.bot.entity.pitch, -0.8);
+  const operations = f.records.filter(
+    (r) => r.event === "action_result" && r.data.action === "exclusive",
+  );
+  assert.equal(operations.length, 1);
+  const index = f.records.findIndex(
+    (r) => r.event === "terrain_diagnostic_observation",
+  );
+  assert.ok(index > f.records.indexOf(operations[0]!));
+  const output = f.records[index]!.data;
+  assert.equal(output.cleanup, "complete");
+  assert.equal(output.viewCount, 3);
+  assert.equal(output.cellCount, 245);
+  assert.equal(output.complete, true);
+  assert.equal(output.dimension, "overworld");
+  const counts = output.counts as Record<string, number>;
+  assert.equal(
+    Object.values(counts).reduce((a, b) => a + b, 0),
+    245,
+  );
+  assert.equal(output.knownCellCount, 245 - counts.unknown!);
+  const views = output.views as CapturedView[];
+  const acquisitions = output.acquisitions as {
+    viewId: string;
+    readiness: { startedAtMs: number; completedAtMs: number; samples: number };
+  }[];
+  assert.equal(new Set(views.map((v) => v.viewId)).size, 3);
+  for (let i = 0; i < 3; i++) {
+    assert.equal(
+      views[i]!.sessionId,
+      (output.observationIdentity as { sessionId: string }).sessionId,
+    );
+    assert.equal(
+      views[i]!.scanId,
+      (output.observationIdentity as { scanId: string }).scanId,
+    );
+    assert.equal(acquisitions[i]!.viewId, views[i]!.viewId);
+    assert.ok(acquisitions[i]!.readiness.samples >= 5);
+    assert.ok(
+      acquisitions[i]!.readiness.completedAtMs -
+        acquisitions[i]!.readiness.startedAtMs >=
+        200,
+    );
+    if (i)
+      assert.ok(
+        acquisitions[i]!.readiness.startedAtMs >
+          acquisitions[i - 1]!.readiness.completedAtMs,
+      );
+  }
+  assert.equal(f.bot.quits, 1);
+  assert.equal(f.bot.listenerCount("physicsTick"), 0);
+  assert.equal(
+    (await runner.run({ type: "inspect", timeoutMs: 100 })).code,
+    "closed",
+  );
+});
+
+test("scanner failure after each capture never publishes partial evidence", async () => {
+  for (const at of [1, 2, 3]) {
+    let calls = 0;
+    const f = setup({
+      mode: "three-view",
+      observe: (b) => {
+        if (++calls === at) throw Error("SECRET observer failure");
+        return observeNearbyTerrain(b);
+      },
+    });
+    f.initialize();
+    assert.equal((await finishScan(f)).exitCode, 1);
+    assert.equal(f.calls(), at);
+    scanFailure(f);
+  }
+});
+
+test("scanner cancellation, disconnect, health, motion, ground, pose and dimension changes refuse", async () => {
+  for (const fault of [
+    "cancel",
+    "disconnect",
+    "health",
+    "motion",
+    "ground",
+    "pose",
+    "dimension",
+    "respawn",
+  ] as const) {
+    const abort = new AbortController();
+    const f = setup({
+      mode: "three-view",
+      signal: abort.signal,
+      observe: (b) => {
+        const cells = observeNearbyTerrain(b);
+        switch (fault) {
+          case "cancel":
+            abort.abort();
+            break;
+          case "disconnect":
+            f.bot.emit("end");
+            break;
+          case "health":
+            f.bot.health--;
+            f.bot.emit("health");
+            break;
+          case "motion":
+            f.bot.entity.velocity.x = 0.02;
+            break;
+          case "ground":
+            f.bot.entity.onGround = false;
+            break;
+          case "pose":
+            f.bot.entity.position.x += 0.01;
+            break;
+          case "dimension":
+            f.bot.game.dimension = "the_nether";
+            break;
+          case "respawn":
+            f.bot.emit("respawn");
+            break;
+        }
+        return cells;
+      },
+    });
+    f.initialize();
+    assert.equal((await finishScan(f)).exitCode, 1);
+    assert.equal(f.calls(), 1);
+    scanFailure(f);
+  }
+});
+
+test("scanner cleanup failure faults canonical admission and cannot report success", async () => {
+  const f = setup({
+    mode: "three-view",
+    observe: (b) => {
+      const cells = observeNearbyTerrain(b);
+      f.bot.failClear = true;
+      return cells;
+    },
+  });
+  f.initialize();
+  const runner = new ActionRunner(f.bot as unknown as Bot, () => {});
+  assert.equal((await finishScan(f)).exitCode, 1);
+  const failure = scanFailure(f);
+  assert.equal(failure.cleanup, "failed");
+  assert.equal(failure.controllerFaulted, true);
+  assert.equal(
+    (await runner.run({ type: "look", yaw: 0, pitch: 0, timeoutMs: 100 })).code,
+    "closed",
+  );
+});
+
+test("scanner readiness timeout is bounded and stops capture with owned cleanup", async () => {
+  const f = setup({ mode: "three-view" });
+  f.initialize();
+  assert.equal((await f.result).exitCode, 1);
+  assert.equal(f.calls(), 0);
+  scanFailure(f);
+});
+
+test("pending camera cancellation cannot publish success or issue later looks", async () => {
+  const abort = new AbortController();
+  const f = setup({
+    mode: "three-view",
+    signal: abort.signal,
+    observe: (b) => {
+      f.bot.hangLook = true;
+      return observeNearbyTerrain(b);
+    },
+  });
+  f.initialize();
+  const timer = setInterval(() => {
+    f.tick();
+    if (f.bot.looks.length) abort.abort();
+  }, 2);
+  try {
+    assert.equal((await f.result).exitCode, 1);
+  } finally {
+    clearInterval(timer);
+  }
+  assert.equal(f.calls(), 1);
+  assert.equal(f.bot.looks.length, 1);
+  scanFailure(f);
+});
+
+test("unknown-only scanner output preserves uncertified start and adjacent evidence", async () => {
+  const f = setup({
+    mode: "three-view",
+    observe: (b) =>
+      observeNearbyTerrain(b).map((c) => ({ ...c, terrain: "unknown" })),
+  });
+  f.initialize();
+  assert.equal((await finishScan(f)).exitCode, 0);
+  const output = f.records.find(
+    (r) => r.event === "terrain_diagnostic_observation",
+  )!.data;
+  assert.equal(output.knownCellCount, 0);
+  assert.equal(output.hasKnownEvidence, false);
+  assert.equal(output.usefulActualStartEvidence, false);
+  const start = output.actualStart as {
+    adjacentEvidence: { requiredEvidenceKnown: boolean }[];
+  };
+  assert.ok(start.adjacentEvidence.every((v) => !v.requiredEvidenceKnown));
+});
+
+test("invalid scanner views refuse and conflicting evidence is counted conservatively", async () => {
+  const invalid = setup({
+    mode: "three-view",
+    observe: () => [{ x: 0, y: 64, z: 0, terrain: "clear" } as never],
+  });
+  invalid.initialize();
+  assert.equal((await finishScan(invalid)).exitCode, 1);
+  scanFailure(invalid);
+  const captured: ReturnType<typeof observeNearbyTerrain>[] = [];
+  const f = setup({
+    mode: "three-view",
+    observe: (b) => {
+      const cells = observeNearbyTerrain(b).map((c) =>
+        captured.length === 1 &&
+        c.x === 0 &&
+        c.y === 63 &&
+        c.z === 0 &&
+        c.terrain !== "unknown"
+          ? { ...c, terrain: "blocked" as const }
+          : c,
+      );
+      captured.push(cells);
+      return cells;
+    },
+  });
+  f.initialize();
+  assert.equal((await finishScan(f)).exitCode, 0);
+  const output = f.records.find(
+    (r) => r.event === "terrain_diagnostic_observation",
+  )!.data;
+  const views = output.views as CapturedView[];
+  const merged = mergeObservations(
+    views.map((v, i) => ({ ...v, cells: captured[i]! })),
+  );
+  assert.equal(merged.ok, true);
+  if (!merged.ok) assert.fail();
+  const counts = { support: 0, clear: 0, blocked: 0, unknown: 0 };
+  for (const c of merged.cells) counts[c.terrain]++;
+  assert.deepEqual(output.counts, counts);
+  assert.equal(
+    merged.cells.find((c) => c.x === 0 && c.y === 63 && c.z === 0)!.terrain,
+    "unknown",
+  );
+  assert.equal(output.usefulActualStartEvidence, false);
+});
+
+test("default production factory preserves lease through scanner cleanup and releases after end", async () => {
+  const { default: mineflayer } = await import("mineflayer");
+  const original = mineflayer.createBot;
+  const bot = new FakeBot();
+  bot.allowCamera = true;
+  const config = {
+    ...readConfig({}),
+    port: 54321,
+    connectTimeoutMs: 1000,
+    shutdownTimeoutMs: 100,
+  };
+  let creates = 0,
+    time = 0;
+  const records: { event: string; data: Record<string, unknown> }[] = [];
+  mineflayer.createBot = () => {
+    creates++;
+    return bot as unknown as Bot;
+  };
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const result = runTerrainDiagnostic(
+      config,
+      (event, data = {}) => records.push({ event, data }),
+      {
+        mode: "three-view",
+        readinessNow: () => time,
+        observe: (b) => {
+          assert.throws(() =>
+            reserveConnection({ ...config, username: "SurvivalBot" }),
+          );
+          assert.throws(() => b.look(0, 0, true), /control_ownership/);
+          return observeNearbyTerrain(b);
+        },
+      },
+    );
+    bot.emit("spawn");
+    bot._client.emit("entity_metadata", {
+      entityId: 42,
+      metadata: [{ key: 1, type: "int", value: 300 }],
+    });
+    for (let i = 0; i < 6; i++) {
+      time += 50;
+      bot.emit("physicsTick");
+    }
+    const denied = await runTerrainDiagnostic(config, () => {}, {
+      mode: "three-view",
+    });
+    assert.equal(denied.exitCode, 1);
+    assert.equal(creates, 1);
+    timer = setInterval(() => {
+      time += 50;
+      bot.emit("physicsTick");
+    }, 2);
+    assert.equal((await result).exitCode, 0);
+    assert.equal(bot.quits, 1);
+    assert.equal(
+      records.filter((r) => r.event === "terrain_diagnostic_observation")
+        .length,
+      1,
+    );
+    const release = reserveConnection({ ...config, username: "SurvivalBot" });
+    release();
+  } finally {
+    clearInterval(timer);
+    bot.emit("end");
+    mineflayer.createBot = original;
+  }
+});
+
+test("scanner operation deadline bounds an unsettled look and preserves faulted admission", async () => {
+  const f = setup({
+    mode: "three-view",
+    observe: (b) => {
+      f.bot.hangLook = true;
+      return observeNearbyTerrain(b);
+    },
+  });
+  f.initialize();
+  const started = performance.now();
+  assert.equal((await finishScan(f)).exitCode, 1);
+  assert.ok(performance.now() - started < 7000);
+  assert.equal(f.calls(), 1);
+  assert.equal(f.bot.looks.length, 1);
+  const failure = scanFailure(f);
+  assert.equal(failure.cleanup, "restoration_failed");
+  assert.equal(failure.controllerFaulted, true);
 });

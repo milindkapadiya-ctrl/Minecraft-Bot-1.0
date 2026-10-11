@@ -10,8 +10,21 @@ import { observeNearbyTerrain } from "./nearby-terrain.js";
 import { captureView } from "./capture-view.js";
 import { collectStationarity, stationaryState } from "./stationarity.js";
 import { mergeObservations } from "./merge-observations.js";
+import { ActionRunner } from "../actions/runner.js";
+import { scanNearbyTerrain, type ScanResult } from "./scan-nearby-terrain.js";
+
+export type DiagnosticMode = "single-view" | "three-view";
+/** Strict launcher selection; no arguments preserves the original behavior. */
+export function diagnosticMode(args: readonly string[]): DiagnosticMode {
+  if (args.length === 0) return "single-view";
+  if (args.length === 1 && args[0] === "--mode=single-view")
+    return "single-view";
+  if (args.length === 1 && args[0] === "--mode=three-view") return "three-view";
+  throw new Error("invalid_diagnostic_mode");
+}
 
 type Options = {
+  mode?: DiagnosticMode;
   signal?: AbortSignal;
   factory?: Parameters<typeof startSession>[2];
   observe?: typeof observeNearbyTerrain;
@@ -83,15 +96,25 @@ function healthRefusal(reading: ReturnType<typeof healthReading>) {
         : undefined;
 }
 
-/** One observer invocation after initialized, sampled stationary readiness. No retries,
- * navigation, camera or movement actions. The injected seams are offline tests.
+/** One diagnostic after initialized stationary readiness, single-view by default.
+ * Explicit three-view mode delegates owned camera work to the production scanner.
+ * No retries, navigation or movement actions. Injected seams are offline tests.
  */
 export async function runTerrainDiagnostic(
   config: Config,
   log: Log,
   options: Options = {},
 ) {
+  const mode = options.mode ?? "single-view";
+  if (mode !== "single-view" && mode !== "three-view")
+    return { exitCode: 1, reason: "invalid_diagnostic_mode" };
   if (options.signal?.aborted) return { exitCode: 1, reason: "cancelled" };
+  const scanAbort = new AbortController();
+  let runner: ActionRunner | undefined;
+  let beginScan: (() => void) | undefined;
+  let scan: ScanResult | undefined;
+  let controllerCleanup: unknown;
+  let controllerFaulted: boolean | undefined;
   let bot: Bot | undefined;
   let ticks = 0;
   let ended = false;
@@ -225,6 +248,7 @@ export async function runTerrainDiagnostic(
       reason = code;
       refusalPreflight = preflight();
     }
+    scanAbort.abort();
     resolveReady();
   };
   const session = startSession(
@@ -232,12 +256,26 @@ export async function runTerrainDiagnostic(
       ...config,
       username: "SurvivalBot",
       connectTimeoutMs: Math.min(config.connectTimeoutMs, 10000),
-      runDurationMs: 3000,
+      runDurationMs: mode === "three-view" ? 7500 : 3000,
       stateIntervalMs: 60000,
     },
     // Session player_state includes inventory; this diagnostic needs no inventory
     // output and emits only its own bounded state/terrain summary.
     (event, data) => {
+      if (
+        mode === "three-view" &&
+        event === "action_result" &&
+        data?.action === "exclusive"
+      ) {
+        controllerCleanup =
+          data.details && (data.details as Record<string, unknown>).cleanup;
+        if (
+          ["failed", "timeout", "restoration_failed"].includes(
+            String(controllerCleanup),
+          )
+        )
+          controllerFaulted = true;
+      }
       if (event !== "player_state") log(event, data);
     },
     options.factory
@@ -248,6 +286,9 @@ export async function runTerrainDiagnostic(
       : undefined,
     (b) => {
       bot = b;
+      // The public constructor returns the session's existing canonical instance.
+      // This same acquisition path is exercised by shared session tests.
+      if (mode === "three-view") runner = new ActionRunner(b, log);
       spawned = true;
       readinessEntity = b.entity;
       const readyEntityId = b.entity?.id;
@@ -501,6 +542,15 @@ export async function runTerrainDiagnostic(
         }
       };
       const corrected = () => fail("unexpected_position_correction");
+      beginScan = () => {
+        // Startup readiness is complete. Scanner owns fresh per-view validation;
+        // startup yaw and deadline must not reject its deliberate owned turns.
+        clearTimeout(timer);
+        b.off("physicsTick", tick);
+        collector?.dispose();
+        recheckReadiness = undefined;
+        phase = "scanning";
+      };
       const dispose = () => {
         sessionActive = false;
         collector?.dispose();
@@ -669,68 +719,95 @@ export async function runTerrainDiagnostic(
       reason = "unexpected_motion";
       throw Error();
     }
-    captureInvoked = true;
-    const started = performance.now();
-    const captured = captureView(
-      { ...captureContext, stationarity: collector?.evidence() },
-      { scanId: identity.scanId, viewId: identity.viewId },
-      {
+    let merged: ReturnType<typeof mergeObservations>;
+    let acquisition: unknown;
+    if (mode === "three-view") {
+      if (!runner || !beginScan) throw Error();
+      beginScan();
+      captureInvoked = true;
+      scan = await scanNearbyTerrain({ ...captureContext, readAir }, runner, {
+        signal: scanAbort.signal,
+        ...(options.readinessNow ? { now: options.readinessNow } : {}),
         observe: (b) => {
           observed = true;
           return (options.observe ?? observeNearbyTerrain)(b);
         },
-      },
-    );
-    captureStatus = captured.ok
-      ? { ok: true }
-      : { ok: false, code: captured.code };
-    if (reason) throw Error();
-    if (performance.now() - started > 1000) {
-      reason = "observation_timeout";
-      throw Error();
+      });
+      if (!scan.ok) {
+        reason ??= scan.code;
+        throw Error();
+      }
+      if (reason || !sessionActive || options.signal?.aborted) throw Error();
+      captureStatus = { ok: true };
+      mergeStatus = { ok: true };
+      merged = scan.observation;
+      acquisition = scan.acquisition;
+      phase = "complete";
+    } else {
+      captureInvoked = true;
+      const started = performance.now();
+      const captured = captureView(
+        { ...captureContext, stationarity: collector?.evidence() },
+        { scanId: identity.scanId, viewId: identity.viewId },
+        {
+          observe: (b) => {
+            observed = true;
+            return (options.observe ?? observeNearbyTerrain)(b);
+          },
+        },
+      );
+      captureStatus = captured.ok
+        ? { ok: true }
+        : { ok: false, code: captured.code };
+      if (reason) throw Error();
+      if (performance.now() - started > 1000) {
+        reason = "observation_timeout";
+        throw Error();
+      }
+      if (!captured.ok) {
+        reason = captured.code;
+        throw Error();
+      }
+      const postAir = readAir();
+      if (
+        Number.isFinite(bot.health) &&
+        bot.health > healthThreshold &&
+        bot.health < state.health
+      ) {
+        fail("health_deteriorated");
+        throw Error();
+      }
+      if (
+        e.isInWater ||
+        !e.onGround ||
+        !Number.isFinite(bot.health) ||
+        bot.health <= healthThreshold ||
+        !stationaryState(bot) ||
+        postAir.status === "invalid" ||
+        (postAir.status === "valid" && postAir.raw! <= 60)
+      ) {
+        reason = "unsafe_post_capture_state";
+        throw Error();
+      }
+      try {
+        merged = (options.merge ?? mergeObservations)([captured.view]);
+      } catch {
+        mergeStatus = { ok: false, code: "execution_error" };
+        reason ??= "merger_failed";
+        throw Error();
+      }
+      mergeStatus = merged.ok ? { ok: true } : { ok: false, code: merged.code };
+      if (reason || !sessionActive) {
+        reason ??= "session_ended_during_observation";
+        throw Error();
+      }
+      if (!merged.ok) {
+        reason = merged.code;
+        throw Error();
+      }
+      acquisition = captured.acquisition;
     }
-    if (!captured.ok) {
-      reason = captured.code;
-      throw Error();
-    }
-    const postAir = readAir();
-    if (
-      Number.isFinite(bot.health) &&
-      bot.health > healthThreshold &&
-      bot.health < state.health
-    ) {
-      fail("health_deteriorated");
-      throw Error();
-    }
-    if (
-      e.isInWater ||
-      !e.onGround ||
-      !Number.isFinite(bot.health) ||
-      bot.health <= healthThreshold ||
-      !stationaryState(bot) ||
-      postAir.status === "invalid" ||
-      (postAir.status === "valid" && postAir.raw! <= 60)
-    ) {
-      reason = "unsafe_post_capture_state";
-      throw Error();
-    }
-    let merged: ReturnType<typeof mergeObservations>;
-    try {
-      merged = (options.merge ?? mergeObservations)([captured.view]);
-    } catch {
-      mergeStatus = { ok: false, code: "execution_error" };
-      reason ??= "merger_failed";
-      throw Error();
-    }
-    mergeStatus = merged.ok ? { ok: true } : { ok: false, code: merged.code };
-    if (reason || !sessionActive) {
-      reason ??= "session_ended_during_observation";
-      throw Error();
-    }
-    if (!merged.ok) {
-      reason = merged.code;
-      throw Error();
-    }
+    if (!merged.ok) throw Error();
     const cells = merged.cells;
     const counts = { support: 0, clear: 0, blocked: 0, unknown: 0 };
     for (const c of cells) counts[c.terrain]++;
@@ -776,15 +853,29 @@ export async function runTerrainDiagnostic(
       };
     });
     log("terrain_diagnostic_observation", {
+      mode,
+      complete: true,
       ...state,
-      observationIdentity: identity,
-      acquisition: captured.acquisition,
+      observationIdentity: scan?.ok
+        ? { sessionId: scan.sessionId, scanId: scan.scanId }
+        : identity,
+      acquisition,
+      ...(scan?.ok
+        ? {
+            views: merged.views,
+            acquisitions: scan.acquisitions,
+            initialView: { yaw: scan.pose.yaw, pitch: scan.pose.pitch },
+            finalView: { yaw: e.yaw, pitch: e.pitch },
+            cleanup: controllerCleanup,
+          }
+        : {}),
       capture: captureStatus,
       merge: mergeStatus,
       preflight: preflight(),
       viewCount: merged.views.length,
       hasKnownEvidence: merged.hasKnownEvidence,
       cellCount: cells.length,
+      knownCellCount: cells.length - counts.unknown,
       counts,
       actualStart: {
         feet,
@@ -801,6 +892,11 @@ export async function runTerrainDiagnostic(
   } catch {
     reason ??= "observer_failed";
     log("terrain_diagnostic_failed", {
+      mode,
+      complete: false,
+      ...(mode === "three-view"
+        ? { cleanup: controllerCleanup, controllerFaulted }
+        : {}),
       reason,
       captureInvoked,
       observerInvoked: observed,
