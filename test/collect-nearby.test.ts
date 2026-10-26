@@ -19,14 +19,20 @@ const lower = { x: 1, y: 62, z: 0, stateId: 9 };
 
 function setup(
   options: {
-    pickup?: "on_dig" | "on_look" | "on_landing" | "delayed";
+    pickup?:
+      "during_preflight" | "on_dig" | "on_look" | "on_landing" | "delayed";
     floorVisible?: boolean;
+    malformedFloor?: boolean;
     digConfirmed?: boolean;
     moveCode?: Code;
     abortAfterDig?: AbortController;
+    firstName?: string;
+    firstTarget?: typeof target;
   } = {},
 ) {
   let dirt = 0;
+  let inspections = 0;
+  let looks = 0;
   const calls: Action["type"][] = [];
   const bot = {
     entity: { position: new Vec3(0.5, 64, 0.5), eyeHeight: 1.62 },
@@ -60,14 +66,29 @@ function setup(
           serverConfirmedAir: options.digConfirmed !== false,
         });
       }
-      if (action.type === "inspect")
+      if (action.type === "inspect") {
+        inspections++;
         return result(action.type, "ok", {
           blocks:
-            options.floorVisible === false
-              ? []
-              : [{ name: "dirt", target: lower }],
+            inspections === 1
+              ? [
+                  {
+                    name: options.firstName ?? "grass_block",
+                    target: options.firstTarget ?? target,
+                  },
+                ]
+              : options.malformedFloor
+                ? [null]
+                : options.floorVisible === false
+                  ? []
+                  : [{ name: "dirt", target: lower }],
         });
-      if (action.type === "look" && options.pickup === "on_look") dirt++;
+      }
+      if (action.type === "look") {
+        looks++;
+        if (options.pickup === "during_preflight" && looks === 1) dirt++;
+        if (options.pickup === "on_look" && looks === 2) dirt++;
+      }
       if (action.type === "step_down") {
         assert.deepEqual(action.target, lower);
         if (options.moveCode && options.moveCode !== "ok")
@@ -89,14 +110,14 @@ test("already collected dirt needs no pickup movement", async () => {
   const result = await collectNearbyDirt(bot, runner, target);
   assert.equal(result.code, "inventory_increase_observed");
   assert.equal(result.evidence.delta, 1);
-  assert.deepEqual(calls, ["dig"]);
+  assert.deepEqual(calls, ["look", "inspect", "dig"]);
 });
 
 test("pickup during the floor check prevents unnecessary movement", async () => {
   const { bot, runner, calls } = setup({ pickup: "on_look" });
   const result = await collectNearbyDirt(bot, runner, target);
   assert.equal(result.code, "inventory_increase_observed");
-  assert.deepEqual(calls, ["dig", "look", "inspect"]);
+  assert.deepEqual(calls, ["look", "inspect", "dig", "look", "inspect"]);
 });
 
 test("visible lower support permits one guarded descent and delayed inventory pickup", async () => {
@@ -105,7 +126,14 @@ test("visible lower support permits one guarded descent and delayed inventory pi
   assert.equal(result.code, "inventory_increase_observed");
   assert.equal(result.movementCode, "ok");
   assert.equal(result.evidence.delta, 1);
-  assert.deepEqual(calls, ["dig", "look", "inspect", "step_down"]);
+  assert.deepEqual(calls, [
+    "look",
+    "inspect",
+    "dig",
+    "look",
+    "inspect",
+    "step_down",
+  ]);
 });
 
 test("a safe landing without inventory increase reports no observed pickup", async () => {
@@ -114,7 +142,14 @@ test("a safe landing without inventory increase reports no observed pickup", asy
   assert.equal(result.code, "not_observed");
   assert.equal(result.movementCode, "ok");
   assert.equal(result.evidence.delta, 0);
-  assert.deepEqual(calls, ["dig", "look", "inspect", "step_down"]);
+  assert.deepEqual(calls, [
+    "look",
+    "inspect",
+    "dig",
+    "look",
+    "inspect",
+    "step_down",
+  ]);
 });
 
 test("unknown lower support and nonadjacent holes never trigger movement", async () => {
@@ -126,15 +161,31 @@ test("unknown lower support and nonadjacent holes never trigger movement", async
   );
   assert.equal(unseenResult.code, "pickup_landing_unknown");
   assert.equal(unseenResult.reason, "lower_support_not_visible");
-  assert.deepEqual(unseen.calls, ["dig", "look", "inspect"]);
+  assert.deepEqual(unseen.calls, ["look", "inspect", "dig", "look", "inspect"]);
 
-  const distant = setup();
-  const distantResult = await collectNearbyDirt(distant.bot, distant.runner, {
-    ...target,
-    x: 2,
-  });
-  assert.equal(distantResult.reason, "hole_not_adjacent");
-  assert.deepEqual(distant.calls, ["dig"]);
+  for (const unsupportedTarget of [
+    { ...target, x: 2 },
+    { ...target, z: 1 },
+    { ...target, y: 64 },
+  ]) {
+    const unsupported = setup();
+    const result = await collectNearbyDirt(
+      unsupported.bot,
+      unsupported.runner,
+      unsupportedTarget,
+    );
+    assert.equal(result.reason, "hole_not_adjacent");
+    assert.equal(result.digCode, "not_ready");
+    assert.deepEqual(unsupported.calls, []);
+  }
+});
+
+test("malformed lower-floor observation refuses descent", async () => {
+  const { bot, runner, calls } = setup({ malformedFloor: true });
+  const result = await collectNearbyDirt(bot, runner, target);
+  assert.equal(result.code, "pickup_landing_unknown");
+  assert.equal(result.reason, "lower_support_not_visible");
+  assert.deepEqual(calls, ["look", "inspect", "dig", "look", "inspect"]);
 });
 
 test("movement refusal and cancellation do not invent a pickup", async () => {
@@ -157,7 +208,7 @@ test("movement refusal and cancellation do not invent a pickup", async () => {
     controller.signal,
   );
   assert.equal(cancelledResult.code, "cancelled");
-  assert.deepEqual(cancelled.calls, ["dig"]);
+  assert.deepEqual(cancelled.calls, ["look", "inspect", "dig"]);
 });
 
 test("a dig without server confirmation never starts pickup movement", async () => {
@@ -168,5 +219,37 @@ test("a dig without server confirmation never starts pickup movement", async () 
   const result = await collectNearbyDirt(bot, runner, target);
   assert.equal(result.code, "dig_failed");
   assert.equal(result.evidence.status, "unverified");
-  assert.deepEqual(calls, ["dig"]);
+  assert.deepEqual(calls, ["look", "inspect", "dig"]);
+});
+
+test("collect refuses a visible non-dirt material before issuing dig", async () => {
+  for (const firstName of ["stone", "sand"]) {
+    const { bot, runner, calls } = setup({ firstName, pickup: "on_dig" });
+    const result = await collectNearbyDirt(bot, runner, target);
+    assert.equal(result.code, "target_not_visible_or_changed");
+    assert.equal(result.digCode, "not_ready");
+    assert.equal(result.evidence.status, "unverified");
+    assert.deepEqual(calls, ["look", "inspect"]);
+  }
+});
+
+test("dirt arriving during target preflight is excluded from dig pickup evidence", async () => {
+  const { bot, runner, calls } = setup({
+    pickup: "during_preflight",
+    moveCode: "not_ready",
+  });
+  const result = await collectNearbyDirt(bot, runner, target);
+  assert.equal(result.code, "movement_failed");
+  assert.equal(result.evidence.beforeCount, 1);
+  assert.equal(result.evidence.afterCount, 1);
+  assert.equal(result.evidence.delta, 0);
+  assert.equal(result.evidence.status, "not_observed");
+  assert.deepEqual(calls, [
+    "look",
+    "inspect",
+    "dig",
+    "look",
+    "inspect",
+    "step_down",
+  ]);
 });

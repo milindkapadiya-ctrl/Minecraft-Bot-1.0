@@ -14,6 +14,7 @@ export interface NearbyCollectionResult {
   code:
     | "inventory_increase_observed"
     | "not_observed"
+    | "target_not_visible_or_changed"
     | "dig_failed"
     | "pickup_landing_unknown"
     | "movement_failed"
@@ -35,7 +36,7 @@ export async function collectNearbyDirt(
   target: Target,
   signal?: AbortSignal,
 ): Promise<NearbyCollectionResult> {
-  const before = inventory(bot);
+  let before = inventory(bot);
   const deadline = performance.now() + 12000;
   let digConfirmed = false;
   const remaining = () => Math.floor(deadline - performance.now());
@@ -63,6 +64,80 @@ export async function collectNearbyDirt(
     runner.run(action, signal);
 
   if (signal?.aborted) return outcome("cancelled", "cancelled");
+  const p = bot.entity.position;
+  const initialSource = p.floored().offset(0, -1, 0);
+  if (
+    target.y !== initialSource.y ||
+    Math.abs(target.x - initialSource.x) +
+      Math.abs(target.z - initialSource.z) !==
+      1
+  )
+    return outcome("pickup_landing_unknown", "not_ready", "hole_not_adjacent");
+  // The demo accepts an inspect index, and guarded dig also supports sand and
+  // stone. Confirm this command's dirt/grass target immediately before digging
+  // so a different material cannot be reported as an acquired dirt drop.
+  const targetDelta = p
+    .clone()
+    .set(target.x + 0.5, target.y + 0.999, target.z + 0.5)
+    .minus(p.offset(0, eyeHeight(bot), 0));
+  const lookTarget = await run({
+    type: "look",
+    yaw: Math.atan2(-targetDelta.x, -targetDelta.z),
+    pitch: Math.atan2(targetDelta.y, Math.hypot(targetDelta.x, targetDelta.z)),
+    timeoutMs: Math.min(1500, remaining()),
+  });
+  if (!lookTarget.ok)
+    return outcome(
+      lookTarget.code === "cancelled"
+        ? "cancelled"
+        : lookTarget.code === "timeout"
+          ? "timeout"
+          : "target_not_visible_or_changed",
+      "not_ready",
+      "cannot_view_target",
+    );
+  const afterLookTarget = stopped("not_ready");
+  if (afterLookTarget) return afterLookTarget;
+  const targetView = await run({
+    type: "inspect",
+    timeoutMs: Math.min(1000, remaining()),
+  });
+  if (!targetView.ok)
+    return outcome(
+      targetView.code === "cancelled"
+        ? "cancelled"
+        : targetView.code === "timeout"
+          ? "timeout"
+          : "target_not_visible_or_changed",
+      "not_ready",
+      "cannot_inspect_target",
+    );
+  const afterInspectTarget = stopped("not_ready");
+  if (afterInspectTarget) return afterInspectTarget;
+  const visible = targetView.details?.blocks;
+  const freshDirt =
+    Array.isArray(visible) &&
+    visible.some((entry: unknown) => {
+      if (!entry || typeof entry !== "object") return false;
+      const block = entry as { name?: string; target?: Target };
+      return (
+        (block.name === "dirt" || block.name === "grass_block") &&
+        block.target?.x === target.x &&
+        block.target?.y === target.y &&
+        block.target?.z === target.z &&
+        block.target?.stateId === target.stateId
+      );
+    });
+  if (!freshDirt)
+    return outcome(
+      "target_not_visible_or_changed",
+      "not_ready",
+      "expected_visible_dirt_or_grass",
+    );
+
+  // Exclude any inventory changes during the visibility preflight from the
+  // claimed dig/pickup interval. Concurrent pickups after this remain uncertain.
+  before = inventory(bot);
   const dig = await run({ type: "dig", target, timeoutMs: 5000 });
   if (!dig.ok || dig.details?.serverConfirmedAir !== true)
     return outcome(
@@ -80,8 +155,8 @@ export async function collectNearbyDirt(
   const interruption = stopped(dig.code);
   if (interruption) return interruption;
 
-  const p = bot.entity.position;
-  const source = p.floored().offset(0, -1, 0);
+  const afterDigPosition = bot.entity.position;
+  const source = afterDigPosition.floored().offset(0, -1, 0);
   if (
     target.y !== source.y ||
     Math.abs(target.x - source.x) + Math.abs(target.z - source.z) !== 1
@@ -90,10 +165,10 @@ export async function collectNearbyDirt(
 
   // Aim at the exposed floor without querying a hidden block. inspect returns
   // the stateId only if the lower support is now visible to the bot.
-  const delta = p
+  const delta = afterDigPosition
     .clone()
     .set(target.x + 0.5, target.y, target.z + 0.5)
-    .minus(p.offset(0, eyeHeight(bot), 0));
+    .minus(afterDigPosition.offset(0, eyeHeight(bot), 0));
   const look = await run({
     type: "look",
     yaw: Math.atan2(-delta.x, -delta.z),
@@ -128,11 +203,16 @@ export async function collectNearbyDirt(
     );
   const blocks = view.details?.blocks;
   const floor = Array.isArray(blocks)
-    ? blocks.find(
-        (b: { target?: Target }) =>
-          b.target?.x === target.x &&
-          b.target.y === target.y - 1 &&
-          b.target.z === target.z,
+    ? (
+        blocks.find((entry: unknown) => {
+          if (!entry || typeof entry !== "object") return false;
+          const block = entry as { target?: Target };
+          return (
+            block.target?.x === target.x &&
+            block.target?.y === target.y - 1 &&
+            block.target?.z === target.z
+          );
+        }) as { target?: Target } | undefined
       )?.target
     : undefined;
   if (!floor)

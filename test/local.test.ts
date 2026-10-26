@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import type { Bot } from "mineflayer";
 import { ActionRunner, validateAction } from "../src/actions/runner.js";
+import { collectNearbyDirt } from "../src/actions/collect-nearby.js";
 import {
   digInventoryEvidence,
   inspect,
@@ -51,6 +52,7 @@ class LocalBot extends EventEmitter {
   inventory = { items: () => this.items };
   missing = false;
   obstacle = false;
+  blockName = "grass_block";
   removed = false;
   digs = 0;
   stops = 0;
@@ -64,7 +66,7 @@ class LocalBot extends EventEmitter {
       !(this.removed && floor.x === target.x && floor.z === target.z);
     return {
       position: floor,
-      name: solid ? "grass_block" : this.obstacle ? "water" : "air",
+      name: solid ? this.blockName : this.obstacle ? "water" : "air",
       stateId: solid ? 9 : 0,
       diggable: solid,
       hardness: solid ? 0.6 : 0,
@@ -399,6 +401,48 @@ test("confirmed single and section block updates produce world and inventory evi
       status: "inventory_increase_observed",
     });
     assert.equal(fake._client.listenerCount("multi_block_change"), 0);
+  }
+});
+
+test("collection preflight reaches guarded dig through the real runner on a fake bot", async () => {
+  const { fake, bot, runner } = setup();
+  fake.entity.position.z = -0.4;
+  const ticks = setInterval(() => fake.emit("physicsTick"), 50);
+  try {
+    const pending = collectNearbyDirt(bot, runner, target);
+    for (let attempt = 0; attempt < 30 && fake.digs === 0; attempt++)
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    assert.equal(fake.digs, 1);
+    fake.removed = true;
+    fake.settle?.();
+    fake.items = [{ name: "dirt", count: 1, slot: 36 }];
+    fake._client.emit("block_change", { location: target, type: 0 });
+    const result = await pending;
+    assert.equal(result.code, "inventory_increase_observed");
+    assert.equal(result.evidence.delta, 1);
+    assert.equal(fake._client.listenerCount("block_change"), 0);
+  } finally {
+    clearInterval(ticks);
+    runner.close();
+  }
+});
+
+test("collection rejects a visible stone or sand target through the real runner", async () => {
+  for (const blockName of ["stone", "sand"]) {
+    const { fake, bot, runner } = setup();
+    fake.entity.position.z = -0.4;
+    fake.blockName = blockName;
+    const ticks = setInterval(() => fake.emit("physicsTick"), 50);
+    try {
+      const result = await collectNearbyDirt(bot, runner, target);
+      assert.equal(result.code, "target_not_visible_or_changed");
+      assert.equal(result.evidence.status, "unverified");
+      assert.equal(fake.digs, 0);
+      assert.equal(fake.controls.size, 0);
+    } finally {
+      clearInterval(ticks);
+      runner.close();
+    }
   }
 });
 test("confirmed dig without a relevant pickup reports no collection evidence", async () => {
