@@ -40,6 +40,8 @@ On 2026-10-26, a local Interaction branch gained an offline route-to-collection 
 
 A later offline follow-up on the same branch strengthened direct `collect` preflight: it refuses nonadjacent, wrong-height, non-dirt/grass or stale targets before mining and excludes preflight inventory changes from dig pickup evidence. Synthetic known-cell fixtures now exercise two different planned course routes and an unknown-terrain refusal, with no hardcoded route in that test. They also refuse pickup movement after an unconfirmed dig and report no observed pickup after a safe descent without inventory gain. A real ActionRunner on a fake bot confirms grass can reach guarded digging and stone/sand refuse before mining. Node 24 `pnpm check` passed with 212 tests, typecheck, build and formatting. This remains offline evidence; live course navigation, changed-layout acceptance and item provenance remain unverified. See the [Interaction handoff](docs/workstreams/resource-acquisition.md#2026-10-26-offline-route-to-collection-checkpoint).
 
+On 2026-10-27, the local Interaction branch merged reviewed main `acc5736` and retained dig inventory evidence inside the canonical ActionRunner's final cleanup. Node 24 typecheck, build and 241 offline tests passed with normal user-cache access for the shared session-lease test. No live route, target-evidence bridge or course run is claimed. The remaining Interaction dependency is a coordinated Perception/Navigation handoff and live acceptance; see the [Interaction handoff](docs/workstreams/resource-acquisition.md#2026-10-26-offline-route-to-collection-checkpoint).
+
 Pending: agree existing perception-to-planner/target seams; validate a legitimate safe dry fixture and single live walk_to before a tiny planned route; integrate the now live-validated nearby action and result with that route; then record a modest course variation and human visual/watchability check of the integrated route. Record offline, installed-physics, live and visual evidence separately. Course setup is coordinated separately from gameplay and must not supply privileged knowledge or bypass no-cheat rules. Surface Recovery is not required to begin independent dry-fixture or fake-based work.
 
 ## Recorded milestone evidence (historical counts)
@@ -96,3 +98,25 @@ Single corrected-air emergency retry (2026-10-04): one upward-only attempt succe
 Read-only saved-surface check (2026-10-04): classificationC, passive sinking3.28574 blocks over3.053s, own air61→4, not grounded; no visible certified dry exit. No controls/code changes, baseline162 unchanged. Bot disconnected/server saved-stopped. Next only on request: bounded offline surface-holding/stability task. See docs/RESUME.md.
 
 Bounded surface hold (2026-10-04): separate one-second swim-up breathing window, fresh own-air admission, motion/health/air guards and cleanup. Installed client-water physics comparison plus lifecycle tests;183 tests/full checks passed. Air telemetry synthetic, no live action or server. Next only on request: one bounded emergency-to-hold live calibration; see docs/surface-hold.md. No shoreline/navigation milestone advancement.
+
+### SHARED-01 prototype ownership — 2026-10-08
+
+- Canonical runner, bounded composite ownership, guarded control methods, session-safe closure and cross-process connection reservation implemented on isolated will-shared-actionrunner. Paused recovery controllers unchanged; standalone legacy mode is enforced separately.
+- Offline suite196/196 passes; TypeScript/build pass. Inherited RESUME/TEAM_WORKFLOW formatting failures remain. No scanner, terrain contract, navigation changes or live tests. Pending: HQ review, updated-runtime manual lifecycle check and separately authorized scanner integration. See docs/shared-action-ownership.md for exact boundaries.
+
+### SHARED-01 PR #3 cleanup safety revision — 2026-10-08
+
+- Reproduced premature composite ownership release and reuse after throwing control cleanup. Cleanup now retains exclusive ownership for bounded cooperative unwinding/restoration; failure or500ms expiry permanently closes the controller. Authoritative shutdown revokes access without waiting indefinitely.
+- Seven new offline regressions; focused63/63, full203/203, TypeScript/build pass. Inherited RESUME/TEAM_WORKFLOW formatting failures remain. No live connection or changes to recovery/navigation implementations. Remaining manual check: real cleanup-failure disconnect; HQ re-review before merge. See docs/shared-action-ownership.md.
+
+### SHARED-02 offline installed-control startup fix — 2026-10-10
+
+- Isolated main-based will-actionrunner-startup-fix preserves all Navigation/NAV-05F proposals. Installed Mineflayer clearControlStates delegates false resets to setControlState; the stationary guard rejected those nested calls at startup and again during cleanup.
+- Guard permits only synchronous false resets inside authorized clear calls, retaining valid ownership, activation/stale-callback rejection and fail-closed cleanup. Six installed-plugin offline regressions; full209/209 and focused45/45, typecheck/build pass; inherited RESUME/TEAM_WORKFLOW formatting only.
+- Published scanner tests remain offline. Actual installed look exposes a separate unexpected_camera refusal after first capture; full live scan readiness is not established. Ethan/HQ must review quantized camera behavior before any separately authorized live retry. No Minecraft connection or gameplay occurred; Surface Recovery source unchanged.
+
+### SHARED-02 final regression review — 2026-10-10
+
+- Preserved fix050bd727 and compared Ethan's published matching offline reproduction4edfa0d. Added only three tests for installed clearance ordering, pending cancellation restoration, and original action failure followed by cleanup failure; production fix unchanged.
+- Focused48/48, full212/212, isolated combined scanner280/280; TypeScript/build pass. Only inherited RESUME/TEAM_WORKFLOW formatting failures remain. Fifteen coverage requirements mapped in docs/shared-action-ownership.md.
+- Next: independent PR review before merge. Separate installed-look camera refusal remains Perception-owned; no live retry authorized, no Navigation or Surface Recovery changes.

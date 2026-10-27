@@ -207,3 +207,143 @@ test("startup recovery does not loop or wait forever", async () => {
     assert.equal(bot.respawns, 1);
   }
 });
+
+test("session closes canonical admission before consumer disposal, including unexpected end", async () => {
+  const { ActionRunner } = await import("../src/actions/runner.js");
+  for (const unexpected of [false, true]) {
+    const bot = new FakeBot();
+    let runner!: InstanceType<typeof ActionRunner>;
+    let rejected!: Promise<import("../src/actions/runner.js").ActionResult>;
+    const session = startSession(
+      readConfig({}),
+      () => {},
+      () => bot as unknown as Bot,
+      (ready) => {
+        runner = new ActionRunner(ready, () => {});
+        return () => {
+          rejected = runner.run({
+            type: "look",
+            yaw: 0,
+            pitch: 0,
+            timeoutMs: 100,
+          });
+        };
+      },
+    );
+    bot.emit("spawn");
+    if (unexpected) bot.emit("end");
+    else session.stop();
+    await session.done;
+    assert.equal((await rejected).code, "closed");
+    assert.equal(new ActionRunner(bot as unknown as Bot, () => {}), runner);
+    session.stop();
+  }
+});
+
+test("consumer disposal failure still disconnects and completes shutdown", async () => {
+  const bot = new FakeBot();
+  const session = startSession(
+    readConfig({}),
+    () => {},
+    () => bot as unknown as Bot,
+    () => () => {
+      throw Error("SECRET");
+    },
+  );
+  bot.emit("spawn");
+  session.stop();
+  assert.equal((await session.done).reason, "disposal_failed");
+  assert.equal(bot.quits, 1);
+});
+
+test("methods injected after connection are guarded before prototype ready callback", async () => {
+  const bot = new FakeBot();
+  let writes = 0;
+  let checked = false;
+  const session = startSession(
+    readConfig({}),
+    () => {},
+    () => bot as unknown as Bot,
+    (ready) => {
+      assert.throws(
+        () => ready.setControlState("forward", true),
+        /control_ownership/,
+      );
+      assert.throws(() => ready.clearControlStates(), /control_ownership/);
+      checked = true;
+      return () => {};
+    },
+  );
+  Object.assign(bot, {
+    setControlState: () => {
+      writes++;
+    },
+    clearControlStates: () => {
+      writes++;
+    },
+  });
+  bot.emit("spawn");
+  session.stop();
+  await session.done;
+  assert.equal(checked, true);
+  assert.equal(writes, 0);
+});
+
+test("default launch lease rejects legacy attachment before factory call and permits isolated reuse after end", async () => {
+  const { default: mineflayer } = await import("mineflayer");
+  const original = mineflayer.createBot;
+  let creates = 0;
+  const bots: FakeBot[] = [];
+  const config = {
+    ...readConfig({}),
+    username: `Lease${process.pid}`,
+    connectTimeoutMs: 1000,
+  };
+  mineflayer.createBot = () => {
+    creates++;
+    const bot = new FakeBot();
+    Object.assign(bot, {
+      clearControlStates: () => {},
+      setControlState: () => {},
+    });
+    bots.push(bot);
+    return bot as unknown as Bot;
+  };
+  try {
+    const prototype = startSession(config, () => {});
+    const denied = startSession(
+      config,
+      () => {},
+      undefined,
+      undefined,
+      false,
+      "legacy-surface",
+    );
+    assert.equal(
+      (await denied.done).reason,
+      "connection_initialization_failed",
+    );
+    assert.equal(creates, 1);
+    prototype.stop();
+    await prototype.done;
+    const legacy = startSession(
+      config,
+      () => {},
+      undefined,
+      undefined,
+      false,
+      "legacy-surface",
+    );
+    assert.equal(creates, 2);
+    const bot = bots[1]! as unknown as Bot;
+    bots[1]!.emit("spawn");
+    bot.setControlState("jump", true);
+    const { ActionRunner } = await import("../src/actions/runner.js");
+    assert.throws(() => new ActionRunner(bot, () => {}), /incompatible/);
+    legacy.stop();
+    await legacy.done;
+    assert.throws(() => bot.setControlState("jump", true), /control_ownership/);
+  } finally {
+    mineflayer.createBot = original;
+  }
+});

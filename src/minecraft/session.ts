@@ -1,3 +1,10 @@
+import { ActionRunner } from "../actions/runner.js";
+import {
+  installControlOwnership,
+  protectControls,
+  closeControls,
+} from "../actions/control-ownership.js";
+import { reserveConnection } from "./connection-lease.js";
 import mineflayer, { type Bot, type BotOptions } from "mineflayer";
 import type { Config } from "../config.js";
 import type { Log } from "../telemetry/logger.js";
@@ -15,10 +22,14 @@ export function startSession(
   factory: Factory = mineflayer.createBot,
   onReady?: (bot: Bot) => () => void,
   respawnOnceOnJoin = false,
+  controlMode: "prototype" | "legacy-surface" = "prototype",
 ) {
   let bot: Bot;
+  let actions: ActionRunner | undefined;
+  let releaseConnection: (() => void) | undefined;
   let stopping = false;
   let finished = false;
+  let connectionEnded = false;
   let spawned = false;
   let respawnRequested = false;
   let outcome: SessionResult = { exitCode: 0, reason: "requested" };
@@ -33,9 +44,16 @@ export function startSession(
   });
 
   function clearActivity() {
+    // Close admission before invoking any consumer disposal callback.
+    actions?.close();
+    if (bot) closeControls(bot);
     const dispose = disposeReady;
     disposeReady = undefined;
-    dispose?.();
+    try {
+      dispose?.();
+    } catch {
+      outcome = { reason: "disposal_failed", exitCode: 1 };
+    }
     clearTimeout(connectTimer);
     clearInterval(stateTimer);
     clearTimeout(runTimer);
@@ -45,6 +63,10 @@ export function startSession(
     finished = true;
     clearActivity();
     clearTimeout(shutdownTimer);
+    if (connectionEnded || !bot) {
+      releaseConnection?.();
+      releaseConnection = undefined;
+    }
     log("disconnected", { ...outcome });
     resolveDone(outcome);
   }
@@ -76,6 +98,10 @@ export function startSession(
     version: config.version,
   });
   try {
+    // Custom factories are trusted offline test seams; real launch paths all
+    // use the default factory and share this cross-process reservation.
+    if (factory === mineflayer.createBot)
+      releaseConnection = reserveConnection(config);
     bot = factory({
       host: config.host,
       port: config.port,
@@ -85,9 +111,16 @@ export function startSession(
       respawn: false,
       hideErrors: true,
     });
+    if (controlMode === "prototype") {
+      installControlOwnership(bot);
+      actions = new ActionRunner(bot, log);
+    } else if (controlMode === "legacy-surface")
+      installControlOwnership(bot, true);
+    else throw new Error("invalid_control_mode");
   } catch {
     outcome = { exitCode: 1, reason: "connection_initialization_failed" };
-    finish();
+    if (bot!) stop("connection_initialization_failed", 1);
+    else finish();
     return { stop, done };
   }
   connectTimer = setTimeout(
@@ -100,6 +133,7 @@ export function startSession(
       stop("survival_required", 1);
       return;
     }
+    protectControls(bot);
     clearTimeout(connectTimer);
     if (!spawned) {
       spawned = true;
@@ -169,6 +203,12 @@ export function startSession(
     stop("connection_error", 1);
   });
   bot.on("end", () => {
+    connectionEnded = true;
+    if (finished) {
+      releaseConnection?.();
+      releaseConnection = undefined;
+      return;
+    }
     if (!stopping) outcome = { exitCode: 1, reason: "server_disconnected" };
     finish();
   });
