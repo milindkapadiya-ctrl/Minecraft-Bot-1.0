@@ -34,9 +34,20 @@ export type ObservedCollectionResult =
       code: "refused" | "cancelled" | "timeout";
       steps: number;
       reason: string;
+      invalidationEvent?: InvalidationEvent;
       collection?: NearbyCollectionResult;
       route?: RouteResult;
     };
+
+const invalidationEvents = [
+  "blockUpdate",
+  "chunkColumnLoad",
+  "chunkColumnUnload",
+  "respawn",
+  "forcedMove",
+  "end",
+] as const;
+type InvalidationEvent = (typeof invalidationEvents)[number];
 
 const same = (a: Position, b: Position) =>
   a.x === b.x && a.y === b.y && a.z === b.z;
@@ -100,6 +111,7 @@ export async function collectObservedDirt(
   let steps = 0;
   let timedOut = false;
   let invalidated = false;
+  let invalidationEvent: InvalidationEvent | undefined;
   const fail = (
     reason: string,
     collection?: NearbyCollectionResult,
@@ -108,6 +120,7 @@ export async function collectObservedDirt(
     code: timedOut ? "timeout" : signal?.aborted ? "cancelled" : "refused",
     steps,
     reason: invalidated ? "world_or_session_changed" : reason,
+    ...(invalidationEvent ? { invalidationEvent } : {}),
     ...(collection ? { collection } : {}),
     ...(route ? { route } : {}),
   });
@@ -126,9 +139,10 @@ export async function collectObservedDirt(
     controller.abort();
   }, 20000);
   let monitoring = true;
-  const invalidate = () => {
+  const invalidate = (event: InvalidationEvent) => {
     if (monitoring) {
       invalidated = true;
+      invalidationEvent ??= event;
       controller.abort();
     }
   };
@@ -136,15 +150,11 @@ export async function collectObservedDirt(
   signal?.addEventListener("abort", cancel, { once: true });
   if (signal?.aborted) cancel();
   // These are delivered client events, not a proof of atomic server history.
-  const invalidationEvents = [
-    "blockUpdate",
-    "chunkColumnLoad",
-    "chunkColumnUnload",
-    "respawn",
-    "forcedMove",
-    "end",
-  ] as const;
-  for (const event of invalidationEvents) bot.on(event, invalidate);
+  const watchers = invalidationEvents.map((event) => {
+    const listener = () => invalidate(event);
+    bot.on(event, listener);
+    return { event, listener };
+  });
   try {
     const deadline = performance.now() + 20000;
     const consumedScans = new Set<string>();
@@ -250,15 +260,15 @@ export async function collectObservedDirt(
       if (controller.signal.aborted)
         return fail(invalidated ? "world_or_session_changed" : "cancelled");
       const beforeLook = stationaryState(bot);
+      if (!waypoint) return fail("no_certified_flat_waypoint");
       if (
-        !waypoint ||
         !beforeLook ||
         beforeLook.entity !== state.entity ||
         !same(beforeLook.pose.position, scan.pose.position) ||
         beforeLook.pose.yaw !== scan.pose.yaw ||
         beforeLook.pose.pitch !== scan.pose.pitch
       )
-        return fail("route_or_pose_unready");
+        return fail("pose_changed_before_waypoint");
       const support = {
         x: waypoint.to.x,
         y: waypoint.to.y - 1,
@@ -311,6 +321,6 @@ export async function collectObservedDirt(
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", cancel);
-    for (const event of invalidationEvents) bot.off(event, invalidate);
+    for (const { event, listener } of watchers) bot.off(event, listener);
   }
 }

@@ -7,6 +7,15 @@ import { ActionRunner } from "../src/actions/runner.js";
 import { collectObservedDirt } from "../src/integration/observed-collection.js";
 import type { ScanContext } from "../src/perception/scan-nearby-terrain.js";
 
+const invalidationEvents = [
+  "blockUpdate",
+  "chunkColumnLoad",
+  "chunkColumnUnload",
+  "respawn",
+  "forcedMove",
+  "end",
+] as const;
+
 const require = createRequire(import.meta.url);
 const { Vec3 } = createRequire(require.resolve("mineflayer"))("vec3") as {
   Vec3: new (x: number, y: number, z: number) => Bot["entity"]["position"];
@@ -140,6 +149,9 @@ async function course(target: { x: number; z: number }, interruptWalk = false) {
   const runner = new ActionRunner(bot, (name, data = {}) =>
     events.push({ name, data }),
   );
+  const baselineListeners = Object.fromEntries(
+    invalidationEvents.map((event) => [event, raw.listenerCount(event)]),
+  );
   const context: ScanContext = {
     readSession: () => ({ bot, sessionId: "course", active: true }),
     readAir: () => ({ status: "valid", raw: 300, oxygen: 20 }),
@@ -152,7 +164,7 @@ async function course(target: { x: number; z: number }, interruptWalk = false) {
       z: target.z,
       stateId: 9,
     });
-    return { raw, result, events };
+    return { raw, result, events, baselineListeners };
   } finally {
     clearInterval(ticks);
   }
@@ -179,13 +191,18 @@ test("real body sequence adapts to two flat course directions and verifies picku
 });
 
 test("delivered world change during routed walk cancels before digging", async () => {
-  const { raw, result, events } = await course({ x: 2, z: 0 }, true);
+  const { raw, result, events, baselineListeners } = await course(
+    { x: 2, z: 0 },
+    true,
+  );
   assert.equal(result.code, "refused", JSON.stringify({ result, events }));
   if (result.code !== "refused") assert.fail("expected refusal");
   assert.equal(result.steps, 0);
   assert.equal(result.reason, "world_or_session_changed");
+  assert.equal(result.invalidationEvent, "blockUpdate");
   assert.equal(result.route?.code, "cancelled");
   assert.equal(raw.digs, 0);
   assert.equal(raw.controlState.forward, false);
-  assert.equal(raw.listenerCount("blockUpdate"), 0);
+  for (const event of invalidationEvents)
+    assert.equal(raw.listenerCount(event), baselineListeners[event], event);
 });
