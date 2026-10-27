@@ -19,6 +19,8 @@ import {
   targetBlock,
   safeDig,
   eyeHeight,
+  digInventoryEvidence,
+  digDrops,
   type Target,
 } from "./local.js";
 
@@ -295,6 +297,8 @@ export class ActionRunner {
       let lastTick = performance.now();
       let digStarted = false;
       let digDone = false;
+      let digInventoryBefore: ReturnType<typeof inventory> | undefined;
+      let digDropItem: string | undefined;
       let confirmedAt: number | undefined;
       let target: ReturnType<typeof targetBlock> = null;
       let step:
@@ -369,13 +373,22 @@ export class ActionRunner {
         // Re-clear after cooperative cleanup; its success is required for reuse.
         clear();
         if (!details.cleanup) details.cleanup = "complete";
+        let digInventoryAfter: ReturnType<typeof inventory> | undefined;
         if (action.type === "dig") {
           try {
-            details.inventoryAfter = inventory(this.bot);
+            digInventoryAfter = inventory(this.bot);
+            details.inventoryAfter = digInventoryAfter;
           } catch {
             completionCode = "execution_error";
           }
         }
+        if (digInventoryBefore && digInventoryAfter)
+          details.collectionEvidence = digInventoryEvidence(
+            digInventoryBefore,
+            digInventoryAfter,
+            completionCode === "ok" && details.serverConfirmedAir === true,
+            digDropItem,
+          );
         ownership.release();
         if (this.closed) closeControls(this.bot);
         this.active = undefined;
@@ -702,17 +715,19 @@ export class ActionRunner {
           if (
             action.type === "approach"
               ? !prepareFlat(this.bot, action.target, details)
-              : !safeDig(this.bot, target)
+              : !safeDig(this.bot, target, details)
           ) {
-            details.reason =
+            details.reason ??=
               action.type === "approach"
                 ? "requires_clear_flat_route"
-                : "requires_reachable_surface_dirt_outside_support";
+                : "requires_reachable_surface_block_outside_support";
             finish("not_ready");
             return;
           }
           if (action.type === "dig") {
-            details.inventoryBefore = inventory(this.bot);
+            digDropItem = digDrops[target.name];
+            digInventoryBefore = inventory(this.bot);
+            details.inventoryBefore = digInventoryBefore;
             details.serverConfirmedAir = false;
           }
           const delta = target.position
@@ -735,7 +750,7 @@ export class ActionRunner {
               } else {
                 if (
                   !targetBlock(this.bot, action.target) ||
-                  !safeDig(this.bot, target!)
+                  !safeDig(this.bot, target!, details)
                 ) {
                   finish("not_ready");
                   return;
