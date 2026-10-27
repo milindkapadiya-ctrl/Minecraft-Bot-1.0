@@ -48,6 +48,7 @@ class CourseBot extends EventEmitter {
   removed = false;
   digs = 0;
   interruptWalk = false;
+  walkUpdatePosition: { x: number; y: number; z: number } | undefined;
   private interrupted = false;
   constructor(readonly target = { x: 2, z: 0 }) {
     super();
@@ -135,15 +136,25 @@ class CourseBot extends EventEmitter {
     );
     if (this.interruptWalk && this.controlState.forward && !this.interrupted) {
       this.interrupted = true;
-      this.emit("blockUpdate");
+      const p = this.walkUpdatePosition;
+      this.emit(
+        "blockUpdate",
+        p ? { position: p, stateId: 9 } : undefined,
+        p ? { position: p, stateId: 0 } : undefined,
+      );
     }
     this.emit("physicsTick");
   }
 }
 
-async function course(target: { x: number; z: number }, interruptWalk = false) {
+async function course(
+  target: { x: number; z: number },
+  interruptWalk = false,
+  walkUpdatePosition?: { x: number; y: number; z: number },
+) {
   const raw = new CourseBot(target);
   raw.interruptWalk = interruptWalk;
+  raw.walkUpdatePosition = walkUpdatePosition;
   const bot = raw as unknown as Bot;
   const events: { name: string; data: Record<string, unknown> }[] = [];
   const runner = new ActionRunner(bot, (name, data = {}) =>
@@ -202,6 +213,33 @@ test("delivered world change during routed walk cancels before digging", async (
   assert.equal(result.invalidationEvent, "blockUpdate");
   assert.equal(result.route?.code, "cancelled");
   assert.equal(raw.digs, 0);
+  assert.equal(raw.controlState.forward, false);
+  for (const event of invalidationEvents)
+    assert.equal(raw.listenerCount(event), baselineListeners[event], event);
+});
+
+test("a changed block in the observed route region still cancels before digging", async () => {
+  const { raw, result } = await course({ x: 2, z: 0 }, true, {
+    x: 1,
+    y: 63,
+    z: 0,
+  });
+  assert.equal(result.code, "refused");
+  if (result.code !== "refused") assert.fail("expected refusal");
+  assert.equal(result.reason, "world_or_session_changed");
+  assert.equal(result.invalidationEvent, "blockUpdate");
+  assert.equal(raw.digs, 0);
+});
+
+test("an unrelated distant block change does not revoke the local route", async () => {
+  const { raw, result, baselineListeners } = await course(
+    { x: 2, z: 0 },
+    true,
+    { x: 100, y: 63, z: 100 },
+  );
+  assert.equal(result.code, "inventory_increase_observed");
+  assert.equal(result.steps, 1);
+  assert.equal(raw.digs, 1);
   assert.equal(raw.controlState.forward, false);
   for (const event of invalidationEvents)
     assert.equal(raw.listenerCount(event), baselineListeners[event], event);

@@ -273,6 +273,16 @@ test("dig rejects underfoot, changed, occluded, and unsupported materials", asyn
     "not_ready",
   );
 });
+test("dig clearance accepts a guarded walk landing but refuses body overlap", () => {
+  const { bot, fake } = setup();
+  const grass = bot.blockAt(new Vec3(0, 63, -2))!;
+  fake.entity.position.set(0.5, 64, -0.573);
+  assert.equal(safeDig(bot, grass), true);
+  fake.entity.position.set(0.5, 64, -0.61);
+  assert.equal(safeDig(bot, grass), false);
+  fake.entity.position.set(0.5, 64, -1.5);
+  assert.equal(safeDig(bot, grass), false);
+});
 test("guarded dig permits one visible adjacent dirt wall but not a distant wall", () => {
   const { bot } = setup();
   const wall = bot.blockAt(new Vec3(1, 63, 1))!;

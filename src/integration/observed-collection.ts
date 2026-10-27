@@ -59,6 +59,57 @@ const cell = (p: Position): Position => ({
 const adjacent = (standing: Position, target: Target) =>
   standing.y === target.y + 1 &&
   Math.abs(standing.x - target.x) + Math.abs(standing.z - target.z) === 1;
+const eventPosition = (block: unknown): Position | null => {
+  try {
+    if (!block || typeof block !== "object" || !("position" in block))
+      return null;
+    const position = block.position;
+    if (!position || typeof position !== "object") return null;
+    const p = position as Partial<Position>;
+    const { x, y, z } = p;
+    if (
+      typeof x !== "number" ||
+      typeof y !== "number" ||
+      typeof z !== "number" ||
+      ![x, y, z].every(Number.isSafeInteger) ||
+      Math.abs(x) > 30000000 ||
+      Math.abs(z) > 30000000 ||
+      Math.abs(y) > 4096
+    )
+      return null;
+    return { x, y, z };
+  } catch {
+    return null;
+  }
+};
+
+/** Scanner cells are within three horizontal cells and one-below to
+ * three-above each stationary anchor. The extra two-cell margin covers rays,
+ * braking support and the next single-step arrival. Unknown event geometry
+ * never grants an exception to invalidation.
+ */
+const outsideRouteRegion = (
+  oldBlock: unknown,
+  newBlock: unknown,
+  anchors: readonly Position[],
+) => {
+  const oldPosition = eventPosition(oldBlock);
+  const newPosition = eventPosition(newBlock);
+  if (
+    !oldPosition ||
+    !newPosition ||
+    !same(oldPosition, newPosition) ||
+    anchors.length === 0
+  )
+    return false;
+  return anchors.every(
+    (anchor) =>
+      Math.abs(newPosition.x - anchor.x) > 5 ||
+      Math.abs(newPosition.z - anchor.z) > 5 ||
+      newPosition.y < anchor.y - 2 ||
+      newPosition.y > anchor.y + 4,
+  );
+};
 
 /** A scan proposes at most one flat waypoint. A later waypoint requires a new
  * scan from the actual landing. Planner cells never supply a block state ID.
@@ -112,6 +163,7 @@ export async function collectObservedDirt(
   let timedOut = false;
   let invalidated = false;
   let invalidationEvent: InvalidationEvent | undefined;
+  const routeAnchors: Position[] = [];
   const fail = (
     reason: string,
     collection?: NearbyCollectionResult,
@@ -151,7 +203,13 @@ export async function collectObservedDirt(
   if (signal?.aborted) cancel();
   // These are delivered client events, not a proof of atomic server history.
   const watchers = invalidationEvents.map((event) => {
-    const listener = () => invalidate(event);
+    const listener = (...args: unknown[]) => {
+      if (
+        event !== "blockUpdate" ||
+        !outsideRouteRegion(args[0], args[1], routeAnchors)
+      )
+        invalidate(event);
+    };
     bot.on(event, listener);
     return { event, listener };
   });
@@ -173,6 +231,7 @@ export async function collectObservedDirt(
       )
         return fail("session_or_pose_unready");
       const start = cell(state.pose.position);
+      routeAnchors.push(start);
       if (adjacent(start, target)) {
         // The collection action re-looks, re-inspects and verifies the target
         // state, server-confirmed dig and subsequent inventory delta.
