@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import type { Bot } from "mineflayer";
 import { ActionRunner, validateAction } from "../src/actions/runner.js";
 import { collectNearbyDirt } from "../src/actions/collect-nearby.js";
+import { VisibleWalkPort } from "../src/integration/visible-walk-port.js";
 import {
   digInventoryEvidence,
   inspect,
@@ -477,6 +478,33 @@ test("collection rejects a visible stone or sand target through the real runner"
       runner.close();
     }
   }
+});
+
+test("visible one-step port prepares only a fresh guarded flat waypoint and aborts owned movement", async () => {
+  const { fake, bot, runner } = setup();
+  fake.entity.position = new Vec3(0.5, 64, -0.5);
+  fake.entity.pitch = -0.95;
+  const port = new VisibleWalkPort(bot, runner);
+  const segment = {
+    kind: "walk" as const,
+    from: { x: 0, y: 64, z: -1 },
+    to: { x: 0, y: 64, z: -2 },
+  };
+  const prepared = port.prepare(segment);
+  assert.equal(prepared.ok, true);
+  if (!prepared.ok) return;
+  assert.deepEqual(prepared.target, target);
+  const pending = port.run(
+    { type: "walk_to", target: prepared.target, timeoutMs: 1000 },
+    new AbortController().signal,
+  );
+  await next();
+  port.stop();
+  const result = await pending;
+  assert.equal(result.code, "cancelled");
+  assert.equal(fake.controls.size, 0);
+  assert.equal(port.prepare(segment).ok, false);
+  runner.close();
 });
 test("confirmed dig without a relevant pickup reports no collection evidence", async () => {
   const { fake, runner } = setup();

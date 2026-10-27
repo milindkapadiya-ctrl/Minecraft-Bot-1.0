@@ -5,13 +5,21 @@ import { ActionRunner } from "./actions/runner.js";
 import { traceMotion } from "./telemetry/motion.js";
 import type { Target } from "./actions/local.js";
 import { collectNearbyDirt } from "./actions/collect-nearby.js";
+import { collectObservedDirt } from "./integration/observed-collection.js";
+import type { ScanContext } from "./perception/scan-nearby-terrain.js";
 
-export function movementConsole(bot: Bot, log: Log, stop: () => void) {
+export function movementConsole(
+  bot: Bot,
+  log: Log,
+  stop: () => void,
+  scanContext?: ScanContext,
+) {
   const runner = new ActionRunner(bot, log);
   const disposeTrace = traceMotion(bot, log);
   const input = createInterface({ input: process.stdin, terminal: false });
   let sequence: AbortController | undefined;
   let targets: Target[] = [];
+  let targetNames: string[] = [];
   log("demo_ready", {
     commands: [
       "look <yawDegrees> <pitchDegrees>",
@@ -22,6 +30,7 @@ export function movementConsole(bot: Bot, log: Log, stop: () => void) {
       "approach <block index from last inspect, starting at 0>",
       "dig <block index from last inspect, starting at 0>",
       "collect <adjacent dirt/grass index from last inspect>",
+      "collect_route <visible dirt/grass index from last inspect>",
       "step_up <adjacent raised block index from last inspect>",
       "step_down <adjacent lower support index from last inspect>",
       "cancel",
@@ -48,6 +57,7 @@ export function movementConsole(bot: Bot, log: Log, stop: () => void) {
     const controller = new AbortController();
     let actions: unknown[];
     let collectTarget: Target | undefined;
+    let routedTarget: Target | undefined;
     if (command === "demo" && args.length === 1) {
       const yaw = Math.atan2(
         Math.sin(bot.entity.yaw + Math.PI / 2),
@@ -87,6 +97,16 @@ export function movementConsole(bot: Bot, log: Log, stop: () => void) {
     ) {
       actions = [{ type: command, timeoutMs: 1000 }];
     } else if (
+      command === "collect_route" &&
+      scanContext &&
+      args.length === 2 &&
+      /^\d+$/.test(args[1]!) &&
+      targets[Number(args[1])] &&
+      ["dirt", "grass_block"].includes(targetNames[Number(args[1])] ?? "")
+    ) {
+      routedTarget = targets[Number(args[1])];
+      actions = [];
+    } else if (
       command === "collect" &&
       args.length === 2 &&
       /^\d+$/.test(args[1]!) &&
@@ -108,6 +128,16 @@ export function movementConsole(bot: Bot, log: Log, stop: () => void) {
     }
     sequence = controller;
     void (async () => {
+      if (routedTarget && scanContext) {
+        const result = await collectObservedDirt(
+          scanContext,
+          runner,
+          routedTarget,
+          controller.signal,
+        );
+        log("collect_route_result", { ...result });
+        return;
+      }
       if (collectTarget) {
         const result = await collectNearbyDirt(
           bot,
@@ -122,9 +152,12 @@ export function movementConsole(bot: Bot, log: Log, stop: () => void) {
         if (controller.signal.aborted) break;
         const result = await runner.run(action, controller.signal);
         if (result.action === "inspect" && result.ok) {
-          targets = (result.details?.blocks as { target: Target }[]).map(
-            (b) => b.target,
-          );
+          const blocks = result.details?.blocks as {
+            name: string;
+            target: Target;
+          }[];
+          targets = blocks.map((b) => b.target);
+          targetNames = blocks.map((b) => b.name);
         }
         if (!result.ok) break;
       }
