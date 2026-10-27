@@ -73,6 +73,8 @@ Follow-up on 2026-10-26: the direct `collect` action now refuses nonadjacent or 
 
 On 2026-10-27, this branch merged reviewed main `acc5736` with Will's canonical ActionRunner and SHARED-02 startup correction. Dig inventory snapshots and evidence now finalize after the controller's required cleanup, so cleanup failure cannot be labeled a confirmed acquisition. No ownership or action schema change was made. Node 24 typecheck, build and all 241 offline tests passed; the shared session-lease test required normal user-cache access after a sandboxed run refused cache creation. No Minecraft server or bot ran. Ethan's target-evidence agreement, Will's production safe-route/arrival port and HQ's live fixture coordination remain pending.
 
+A later focused regression used the real ActionRunner with a fake bot: server-confirmed air and dirt 0→1 followed by a required cleanup failure produced `dig_failed`/`execution_error`, `unverified` inventory evidence, no pickup movement and closed controller admission. Full Node 24 `pnpm check` passed with 242 tests, typecheck, build and formatting. No live Minecraft or shared interface change occurred.
+
 ## Cross-stream integration request (pending agreement)
 
 The two fresh worlds exposed the same practical limit: six of seven server-confirmed stationary digs did not increase inventory. The current `OfflineRouteExecutor` has an injected `MovementPort` (`observe`, `prepare`, `run`, `stop`) and structured route refusal/failure results, but no production movement port or live planned route. Milind will not use ad hoc controls to move toward drops or implement a second navigator.

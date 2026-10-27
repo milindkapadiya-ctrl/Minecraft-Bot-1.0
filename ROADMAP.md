@@ -42,6 +42,8 @@ A later offline follow-up on the same branch strengthened direct `collect` prefl
 
 On 2026-10-27, the local Interaction branch merged reviewed main `acc5736` and retained dig inventory evidence inside the canonical ActionRunner's final cleanup. Node 24 typecheck, build and 241 offline tests passed with normal user-cache access for the shared session-lease test. No live route, target-evidence bridge or course run is claimed. The remaining Interaction dependency is a coordinated Perception/Navigation handoff and live acceptance; see the [Interaction handoff](docs/workstreams/resource-acquisition.md#2026-10-26-offline-route-to-collection-checkpoint).
 
+A follow-up offline regression confirmed that a dirt gain cannot be called acquired if canonical dig cleanup fails and closes the runner. The full Node 24 gate passed with 242 tests, typecheck, build and formatting. Live integrated acquisition remains pending.
+
 Pending: agree existing perception-to-planner/target seams; validate a legitimate safe dry fixture and single live walk_to before a tiny planned route; integrate the now live-validated nearby action and result with that route; then record a modest course variation and human visual/watchability check of the integrated route. Record offline, installed-physics, live and visual evidence separately. Course setup is coordinated separately from gameplay and must not supply privileged knowledge or bypass no-cheat rules. Surface Recovery is not required to begin independent dry-fixture or fake-based work.
 
 ## Recorded milestone evidence (historical counts)

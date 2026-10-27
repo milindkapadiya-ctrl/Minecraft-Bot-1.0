@@ -429,6 +429,37 @@ test("collection preflight reaches guarded dig through the real runner on a fake
   }
 });
 
+test("collection does not claim pickup when canonical dig cleanup fails", async () => {
+  const { fake, bot, runner } = setup();
+  fake.entity.position.z = -0.4;
+  const ticks = setInterval(() => fake.emit("physicsTick"), 50);
+  try {
+    const pending = collectNearbyDirt(bot, runner, target);
+    for (let attempt = 0; attempt < 30 && fake.digs === 0; attempt++)
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    assert.equal(fake.digs, 1);
+    fake.removed = true;
+    fake.settle?.();
+    fake.items = [{ name: "dirt", count: 1, slot: 36 }];
+    fake.stopError = true;
+    fake._client.emit("block_change", { location: target, type: 0 });
+    const result = await pending;
+    assert.equal(result.code, "dig_failed");
+    assert.equal(result.digCode, "execution_error");
+    assert.equal(result.evidence.delta, 1);
+    assert.equal(result.evidence.status, "unverified");
+    assert.equal(fake._client.listenerCount("block_change"), 0);
+    assert.equal(fake.controls.size, 0);
+    assert.equal(
+      (await runner.run({ type: "inspect", timeoutMs: 1000 })).code,
+      "closed",
+    );
+  } finally {
+    clearInterval(ticks);
+    runner.close();
+  }
+});
+
 test("collection rejects a visible stone or sand target through the real runner", async () => {
   for (const blockName of ["stone", "sand"]) {
     const { fake, bot, runner } = setup();
