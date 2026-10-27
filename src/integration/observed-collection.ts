@@ -12,7 +12,10 @@ import {
   type Position,
   type Segment,
 } from "../navigation/planner.js";
-import { OfflineRouteExecutor } from "../navigation/route-executor.js";
+import {
+  OfflineRouteExecutor,
+  type RouteResult,
+} from "../navigation/route-executor.js";
 import {
   scanNearbyTerrain,
   type ScanContext,
@@ -32,6 +35,7 @@ export type ObservedCollectionResult =
       steps: number;
       reason: string;
       collection?: NearbyCollectionResult;
+      route?: RouteResult;
     };
 
 const same = (a: Position, b: Position) =>
@@ -95,14 +99,17 @@ export async function collectObservedDirt(
   const bot: Bot = initial.bot;
   let steps = 0;
   let timedOut = false;
+  let invalidated = false;
   const fail = (
     reason: string,
     collection?: NearbyCollectionResult,
+    route?: RouteResult,
   ): ObservedCollectionResult => ({
     code: timedOut ? "timeout" : signal?.aborted ? "cancelled" : "refused",
     steps,
-    reason,
+    reason: invalidated ? "world_or_session_changed" : reason,
     ...(collection ? { collection } : {}),
+    ...(route ? { route } : {}),
   });
   if (
     !initial.active ||
@@ -118,7 +125,6 @@ export async function collectObservedDirt(
     timedOut = true;
     controller.abort();
   }, 20000);
-  let invalidated = false;
   let monitoring = true;
   const invalidate = () => {
     if (monitoring) {
@@ -297,7 +303,7 @@ export async function collectObservedDirt(
         routed.completed !== 1 ||
         controller.signal.aborted
       )
-        return fail(`waypoint_${routed.code}`);
+        return fail(`waypoint_${routed.code}`, undefined, routed);
       steps++;
       // The scan was consumed by WALK1. Loop obtains a new batch before WALK2.
     }
