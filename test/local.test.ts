@@ -6,6 +6,7 @@ import type { Bot } from "mineflayer";
 import { ActionRunner, validateAction } from "../src/actions/runner.js";
 import { collectNearbyDirt } from "../src/actions/collect-nearby.js";
 import { VisibleWalkPort } from "../src/integration/visible-walk-port.js";
+import { collectObservedDirt } from "../src/integration/observed-collection.js";
 import {
   digInventoryEvidence,
   inspect,
@@ -477,6 +478,38 @@ test("collection rejects a visible stone or sand target through the real runner"
       clearInterval(ticks);
       runner.close();
     }
+  }
+});
+
+test("observed collection preserves failed dig preflight and unverified inventory evidence", async () => {
+  const { fake, bot, runner } = setup();
+  fake.entity.position.z = -0.5;
+  fake.blockName = "stone";
+  Object.assign(fake.entity, { isInWater: false });
+  Object.assign(fake.game, { dimension: "overworld" });
+  Object.assign(fake, { controlState: { forward: false } });
+  const ticks = setInterval(() => fake.emit("physicsTick"), 50);
+  try {
+    const result = await collectObservedDirt(
+      {
+        readSession: () => ({
+          bot,
+          sessionId: "offline-collection",
+          active: true,
+        }),
+        readAir: () => ({ status: "unknown", raw: null, oxygen: null }),
+      },
+      runner,
+      target,
+    );
+    assert.equal(result.code, "refused");
+    assert.equal(result.steps, 0);
+    assert.equal(result.collection?.code, "target_not_visible_or_changed");
+    assert.equal(result.collection?.evidence.status, "unverified");
+    assert.equal(fake.digs, 0);
+  } finally {
+    clearInterval(ticks);
+    runner.close();
   }
 });
 

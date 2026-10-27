@@ -1,5 +1,11 @@
 # Milind — Interaction & Inventory
 
+## 2026-10-27 integration branch update
+
+Draft [PR #6](https://github.com/milindkapadiya-ctrl/Minecraft-Bot-1.0/pull/6) stacks on Interaction PR #5. Branch `codex/body-e2e-integration` merges the published Perception scanner and Will's NAV-06 specification, then wires `collect_route <inspect index>` through a bounded flat-only scan → plan → one guarded waypoint → fresh scan loop → guarded dirt/grass collection. Each waypoint reacquires visible support state and verifies stable arrival; the dig rechecks target state and reports server-confirmed removal plus dirt inventory evidence. Delivered world changes and failed scan/route/action checks stop the sequence. Failed collection now preserves its structured dig and inventory evidence in the route result.
+
+Node 24 `pnpm check` passes: 553 tests total, 544 passed, 9 platform-specific skipped, 0 failed; typecheck, build and formatting passed. The new integration tests run the real scanner and canonical controller on a fake bot: a delivered block update during acquisition stops before movement or digging, releases listeners/controls and leaves the controller usable. A second test confirms that a refused non-dirt collection keeps `unverified` inventory evidence. These are offline results. The clone has no server jar or dedicated course fixture, and no live route, course variation or end-to-end pickup has been run. A safe coordinated fixture, observational-consistency review and separately authorized live run remain the acceptance work; historical adjacent-hole live pickup below is a narrower result.
+
 ## Purpose and major objective
 
 Own nearby block interaction, guarded digging, collection verification and inventory/result reporting for one legitimately visible/known target. Start from a nearby-positioned safe setup or a fake so this work is independently testable; request existing navigation only when the scoped action needs it. Prepare a reusable body tool, not full Minecraft progression. Follow [team workflow](../TEAM_WORKFLOW.md) and [AGENTS](../../AGENTS.md).

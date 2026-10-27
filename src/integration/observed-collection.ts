@@ -31,6 +31,7 @@ export type ObservedCollectionResult =
       code: "refused" | "cancelled" | "timeout";
       steps: number;
       reason: string;
+      collection?: NearbyCollectionResult;
     };
 
 const same = (a: Position, b: Position) =>
@@ -94,10 +95,14 @@ export async function collectObservedDirt(
   const bot: Bot = initial.bot;
   let steps = 0;
   let timedOut = false;
-  const fail = (reason: string): ObservedCollectionResult => ({
+  const fail = (
+    reason: string,
+    collection?: NearbyCollectionResult,
+  ): ObservedCollectionResult => ({
     code: timedOut ? "timeout" : signal?.aborted ? "cancelled" : "refused",
     steps,
     reason,
+    ...(collection ? { collection } : {}),
   });
   if (
     !initial.active ||
@@ -169,7 +174,21 @@ export async function collectObservedDirt(
           collected.code === "not_observed"
         )
           return { code: collected.code, steps, collection: collected };
-        return fail(`collection_${collected.code}`);
+        if (collected.code === "cancelled")
+          return {
+            code: "cancelled",
+            steps,
+            reason: "collection_cancelled",
+            collection: collected,
+          };
+        if (collected.code === "timeout")
+          return {
+            code: "timeout",
+            steps,
+            reason: "collection_timeout",
+            collection: collected,
+          };
+        return fail(`collection_${collected.code}`, collected);
       }
       if (attempt === 3) return fail("waypoint_limit");
       const scan: ScanResult = await scanNearbyTerrain(context, runner, {

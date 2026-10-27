@@ -16,6 +16,7 @@ import { mergeObservations } from "../src/perception/merge-observations.js";
 import { verifiedLookPose } from "../src/perception/camera-pose.js";
 import { GROUNDED_GRAVITY_RESIDUAL } from "../src/perception/stationarity.js";
 import { planRoute } from "../src/navigation/planner.js";
+import { collectObservedDirt } from "../src/integration/observed-collection.js";
 import type { OwnAir } from "../src/minecraft/air-compat.js";
 const require = createRequire(import.meta.url);
 const depsForCamera = require("mineflayer/lib/conversions.js");
@@ -103,7 +104,7 @@ function fixture() {
     raw.emit("physicsTick");
     await turn();
   };
-  async function drive(promise: Promise<ScanResult>, hook?: () => void) {
+  async function drive<T>(promise: Promise<T>, hook?: () => void) {
     let done = false;
     void promise.then(() => {
       done = true;
@@ -145,6 +146,32 @@ function fixture() {
     },
   };
 }
+
+test("world update during an owned scan stops observed collection before movement or digging", async () => {
+  const f = fixture();
+  let ticks = 0;
+  const result = await f.drive(
+    collectObservedDirt(f.context, f.runner, {
+      x: 2,
+      y: 63,
+      z: 0,
+      stateId: 9,
+    }),
+    () => {
+      if (++ticks === 3) f.raw.emit("blockUpdate");
+    },
+  );
+  assert.equal(result.code, "refused");
+  assert.equal(result.steps, 0);
+  assert.equal(
+    f.records.filter((record) => record.event === "action_started").length,
+    1,
+  );
+  assert.equal(f.raw.controlState.forward, false);
+  assert.equal(f.raw.listenerCount("blockUpdate"), 0);
+  f.clean();
+  assert.equal((await f.runner.run(request)).code, "ok");
+});
 function success(result: ScanResult) {
   if (!result.ok) throw Error(result.code);
   assert.equal(result.ok, true);
