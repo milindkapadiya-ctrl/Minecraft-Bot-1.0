@@ -50,7 +50,10 @@ class CourseBot extends EventEmitter {
   interruptWalk = false;
   walkUpdatePosition: { x: number; y: number; z: number } | undefined;
   private interrupted = false;
-  constructor(readonly target = { x: 2, z: 0 }) {
+  constructor(
+    readonly target = { x: 2, z: 0 },
+    readonly pit?: { x: number; z: number },
+  ) {
     super();
     this.entity.yaw = target.x === 0 ? Math.PI : -Math.PI / 2;
   }
@@ -64,8 +67,14 @@ class CourseBot extends EventEmitter {
       position.x === this.target.x &&
       position.y === 63 &&
       position.z === this.target.z;
+    const pit =
+      this.pit !== undefined &&
+      position.x === this.pit.x &&
+      position.y === 63 &&
+      position.z === this.pit.z;
     const solid =
-      position.y <= 62 || (position.y === 63 && !(target && this.removed));
+      position.y <= 62 ||
+      (position.y === 63 && !pit && !(target && this.removed));
     return {
       position,
       name: solid ? (position.y === 63 ? "grass_block" : "stone") : "air",
@@ -151,8 +160,9 @@ async function course(
   target: { x: number; z: number },
   interruptWalk = false,
   walkUpdatePosition?: { x: number; y: number; z: number },
+  pit?: { x: number; z: number },
 ) {
-  const raw = new CourseBot(target);
+  const raw = new CourseBot(target, pit);
   raw.interruptWalk = interruptWalk;
   raw.walkUpdatePosition = walkUpdatePosition;
   const bot = raw as unknown as Bot;
@@ -199,6 +209,23 @@ test("real body sequence adapts to two flat course directions and verifies picku
     assert.ok(events.some((event) => event.name === "action_started"));
     assert.equal(raw.listenerCount("blockUpdate"), 0);
   }
+});
+
+test("bounded local probes can reobserve around a visible one-cell pit", async () => {
+  const { raw, result } = await course({ x: 2, z: 0 }, false, undefined, {
+    x: 1,
+    z: 0,
+  });
+  assert.equal(
+    result.code,
+    "inventory_increase_observed",
+    JSON.stringify(result),
+  );
+  if (result.code !== "inventory_increase_observed") assert.fail();
+  assert.equal(result.steps, 3);
+  assert.equal(result.collection.evidence.delta, 1);
+  assert.equal(raw.digs, 1);
+  assert.equal(raw.controlState.forward, false);
 });
 
 test("delivered world change during routed walk cancels before digging", async () => {

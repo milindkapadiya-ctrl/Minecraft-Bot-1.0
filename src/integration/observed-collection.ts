@@ -21,7 +21,10 @@ import {
   type ScanContext,
   type ScanResult,
 } from "../perception/scan-nearby-terrain.js";
-import { stationaryState } from "../perception/stationarity.js";
+import {
+  collectStationarity,
+  stationaryState,
+} from "../perception/stationarity.js";
 import { VisibleWalkPort } from "./visible-walk-port.js";
 
 export type ObservedCollectionResult =
@@ -51,6 +54,7 @@ type InvalidationEvent = (typeof invalidationEvents)[number];
 
 const same = (a: Position, b: Position) =>
   a.x === b.x && a.y === b.y && a.z === b.z;
+const key = (p: Position) => `${p.x},${p.y},${p.z}`;
 const cell = (p: Position): Position => ({
   x: Math.floor(p.x),
   y: Math.floor(p.y),
@@ -147,6 +151,115 @@ export function nextFlatWaypoint(
   return best?.[0] ?? null;
 }
 
+/** A complete route can be unavailable while its first local step is known.
+ * Permit one bounded side step, then require progress toward adjacency on
+ * later probes. The unchanged planner certifies every proposed walk and its
+ * braking buffer; unknown cells never become traversable by this fallback.
+ */
+function nextCertifiedProbeWaypoint(
+  cells: readonly KnownCell[],
+  start: Position,
+  target: Target,
+  remainingSteps: number,
+  visited: readonly Position[],
+  usedSideStep: boolean,
+): Segment | null {
+  if (target.y + 1 !== start.y || remainingSteps < 1) return null;
+  const distance = (p: Position) =>
+    Math.abs(p.x - target.x) + Math.abs(p.z - target.z);
+  const currentDistance = distance(start);
+  const candidates = [
+    { x: start.x + 1, y: start.y, z: start.z },
+    { x: start.x, y: start.y, z: start.z + 1 },
+    { x: start.x - 1, y: start.y, z: start.z },
+    { x: start.x, y: start.y, z: start.z - 1 },
+  ];
+  let best: Segment | null = null;
+  let bestDistance = Infinity;
+  for (const candidate of candidates) {
+    if (
+      (candidate.x === target.x && candidate.z === target.z) ||
+      visited.some((p) => same(p, candidate))
+    )
+      continue;
+    const nextDistance = distance(candidate);
+    if (nextDistance > remainingSteps) continue;
+    const lateral =
+      nextDistance === currentDistance + 1 &&
+      (target.x - start.x) * (candidate.x - start.x) +
+        (target.z - start.z) * (candidate.z - start.z) ===
+        0;
+    if (nextDistance >= currentDistance && (!lateral || usedSideStep)) continue;
+    const plan = planRoute({
+      cells,
+      start,
+      target: candidate,
+      maxSteps: 1,
+      radius: 4,
+    });
+    const step = plan.ok ? plan.segments[0] : undefined;
+    if (
+      step?.kind === "walk" &&
+      plan.segments.length === 1 &&
+      nextDistance < bestDistance
+    ) {
+      best = step;
+      bestDistance = nextDistance;
+    }
+  }
+  return best;
+}
+
+/** Two complete scans from the same still pose may expose complementary
+ * visible cells. A disagreement stays unknown; this grants no hidden reads. */
+function consistentVisibleCells(
+  first: readonly KnownCell[],
+  second: readonly KnownCell[],
+): KnownCell[] | null {
+  if (first.length !== 245 || second.length !== 245) return null;
+  const secondByKey = new Map(second.map((c) => [key(c), c]));
+  if (secondByKey.size !== 245) return null;
+  const merged: KnownCell[] = [];
+  for (const a of first) {
+    const b = secondByKey.get(key(a));
+    if (!b) return null;
+    merged.push({
+      x: a.x,
+      y: a.y,
+      z: a.z,
+      terrain:
+        a.terrain === "unknown"
+          ? b.terrain
+          : b.terrain === "unknown" || b.terrain === a.terrain
+            ? a.terrain
+            : "unknown",
+    });
+  }
+  return merged;
+}
+
+/** A successful walk may still coast below the walk primitive's speed limit.
+ * Wait for the scanner's exact unchanged-pose evidence before starting the
+ * next camera batch; an aborted or unsteady arrival cannot grant authority.
+ */
+async function waitForSettledPose(
+  context: ScanContext,
+  signal: AbortSignal,
+  maxMs: number,
+): Promise<boolean> {
+  const collector = collectStationarity(context, { signal });
+  try {
+    const deadline = performance.now() + maxMs;
+    while (!signal.aborted && performance.now() < deadline) {
+      if (collector.evidence()) return true;
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    }
+    return false;
+  } finally {
+    collector.dispose();
+  }
+}
+
 /** Trusted composition: one visible target, direct scanner, fresh guarded
  * movement on each flat segment, and the existing inventory-verified dig.
  * Any delivered world change or lifecycle interruption stops the sequence.
@@ -164,6 +277,7 @@ export async function collectObservedDirt(
   let invalidated = false;
   let invalidationEvent: InvalidationEvent | undefined;
   const routeAnchors: Position[] = [];
+  let usedSideStep = false;
   const fail = (
     reason: string,
     collection?: NearbyCollectionResult,
@@ -266,7 +380,56 @@ export async function collectObservedDirt(
         return fail(`collection_${collected.code}`, collected);
       }
       if (attempt === 3) return fail("waypoint_limit");
-      const scan: ScanResult = await scanNearbyTerrain(context, runner, {
+      if (steps > 0) {
+        const p = bot.entity.position;
+        const delta = p
+          .clone()
+          .set(target.x + 0.5, target.y + 0.999, target.z + 0.5)
+          .minus(p.offset(0, eyeHeight(bot), 0));
+        const targetYaw = Math.atan2(-delta.x, -delta.z);
+        const origin = routeAnchors[0]!;
+        const mainX = target.x - origin.x;
+        const mainZ = target.z - origin.z;
+        const laneYaw =
+          Math.abs(mainX) >= Math.abs(mainZ) && mainX !== 0
+            ? mainX > 0
+              ? -Math.PI / 2
+              : Math.PI / 2
+            : mainZ > 0
+              ? Math.PI
+              : 0;
+        const laneOffset = Math.atan2(
+          Math.sin(laneYaw - targetYaw),
+          Math.cos(laneYaw - targetYaw),
+        );
+        const aimed = await runner.run(
+          {
+            type: "look",
+            yaw: targetYaw + laneOffset / 4,
+            pitch: Math.min(
+              -0.85,
+              Math.atan2(delta.y, Math.hypot(delta.x, delta.z)),
+            ),
+            timeoutMs: 1500,
+          },
+          controller.signal,
+        );
+        if (!aimed.ok || controller.signal.aborted)
+          return fail(`target_look_${aimed.code}`);
+        const afterAim = stationaryState(bot);
+        const aimedSession = context.readSession();
+        if (
+          !afterAim ||
+          !aimedSession.active ||
+          aimedSession.bot !== bot ||
+          aimedSession.sessionId !== initial.sessionId ||
+          afterAim.entity !== state.entity ||
+          afterAim.dimension !== state.dimension ||
+          !same(afterAim.pose.position, state.pose.position)
+        )
+          return fail("pose_changed_after_target_look");
+      }
+      let scan: ScanResult = await scanNearbyTerrain(context, runner, {
         signal: controller.signal,
       });
       if (!scan.ok) return fail(`scan_${scan.code}`);
@@ -290,30 +453,206 @@ export async function collectObservedDirt(
         scan.observation.views.length !== 3
       )
         return fail("scan_handoff_changed");
-      const targetCell = scan.observation.cells.find(
-        (c) => c.x === target.x && c.y === target.y && c.z === target.z,
-      );
-      const targetEvidence = scan.observation.evidence.find(
-        (e) => e.x === target.x && e.y === target.y && e.z === target.z,
-      );
-      if (
-        targetCell?.terrain !== "support" ||
-        !targetEvidence ||
-        targetEvidence.conflict ||
-        targetEvidence.knownViewIds.length === 0
-      )
-        return fail("target_not_observed_as_support");
-      const copied = scan.observation.cells.map((c) => ({
+      let copied = scan.observation.cells.map((c) => ({
         x: c.x,
         y: c.y,
         z: c.z,
         terrain: c.terrain,
       }));
-      const waypoint = nextFlatWaypoint(
-        copied,
-        cell(fresh.pose.position),
-        target,
-      );
+      const targetSeen = (result: Extract<ScanResult, { ok: true }>) => {
+        const evidence = result.observation.evidence.find(
+          (e) => e.x === target.x && e.y === target.y && e.z === target.z,
+        );
+        return (
+          !!evidence &&
+          !evidence.conflict &&
+          evidence.knownViewIds.length > 0 &&
+          result.observation.cells.some(
+            (c) =>
+              c.x === target.x &&
+              c.y === target.y &&
+              c.z === target.z &&
+              c.terrain === "support",
+          )
+        );
+      };
+      if (
+        scan.observation.evidence.some(
+          (e) =>
+            e.x === target.x &&
+            e.y === target.y &&
+            e.z === target.z &&
+            e.conflict,
+        )
+      )
+        return fail("target_observation_conflict");
+      let observedTarget = targetSeen(scan);
+      const chooseWaypoint = (cells: readonly KnownCell[]) => {
+        const complete = nextFlatWaypoint(cells, start, target);
+        return (
+          (complete && !routeAnchors.some((anchor) => same(anchor, complete.to))
+            ? complete
+            : null) ??
+          nextCertifiedProbeWaypoint(
+            cells,
+            start,
+            target,
+            3 - steps,
+            routeAnchors,
+            usedSideStep,
+          )
+        );
+      };
+      let waypoint = chooseWaypoint(copied);
+      if (steps > 0 && (!observedTarget || !waypoint)) {
+        const origin = routeAnchors[0]!;
+        const mainX = target.x - origin.x;
+        const mainZ = target.z - origin.z;
+        const laneYaw =
+          Math.abs(mainX) >= Math.abs(mainZ) && mainX !== 0
+            ? mainX > 0
+              ? -Math.PI / 2
+              : Math.PI / 2
+            : mainZ > 0
+              ? Math.PI
+              : 0;
+        const beforeLane = stationaryState(bot);
+        if (!beforeLane || !same(beforeLane.pose.position, scan.pose.position))
+          return fail("pose_changed_before_lane_scan");
+        const laneLook = await runner.run(
+          { type: "look", yaw: laneYaw, pitch: -0.8, timeoutMs: 1500 },
+          controller.signal,
+        );
+        if (!laneLook.ok || controller.signal.aborted)
+          return fail(`lane_look_${laneLook.code}`);
+        const laneState = stationaryState(bot);
+        if (!laneState || !same(laneState.pose.position, scan.pose.position))
+          return fail("pose_changed_after_lane_look");
+        const laneScan = await scanNearbyTerrain(context, runner, {
+          signal: controller.signal,
+        });
+        if (!laneScan.ok) return fail(`lane_scan_${laneScan.code}`);
+        if (!laneScan.complete || consumedScans.has(laneScan.scanId))
+          return fail("invalid_or_reused_lane_scan");
+        consumedScans.add(laneScan.scanId);
+        const afterLane = stationaryState(bot);
+        const laneSession = context.readSession();
+        if (
+          controller.signal.aborted ||
+          !laneSession.active ||
+          laneSession.bot !== bot ||
+          laneSession.sessionId !== laneScan.sessionId ||
+          !afterLane ||
+          laneScan.sessionId !== scan.sessionId ||
+          laneScan.dimension !== scan.dimension ||
+          afterLane.entity !== state.entity ||
+          !same(laneScan.pose.position, scan.pose.position) ||
+          !same(afterLane.pose.position, laneScan.pose.position) ||
+          afterLane.pose.yaw !== laneScan.pose.yaw ||
+          afterLane.pose.pitch !== laneScan.pose.pitch ||
+          laneScan.observation.cells.length !== 245 ||
+          laneScan.observation.views.length !== 3
+        )
+          return fail("lane_scan_handoff_changed");
+        if (
+          laneScan.observation.evidence.some(
+            (e) =>
+              e.x === target.x &&
+              e.y === target.y &&
+              e.z === target.z &&
+              e.conflict,
+          )
+        )
+          return fail("target_observation_conflict");
+        const combined = consistentVisibleCells(
+          copied,
+          laneScan.observation.cells,
+        );
+        if (!combined) return fail("inconsistent_scan_cells");
+        copied = combined;
+        observedTarget ||= targetSeen(laneScan);
+        waypoint = chooseWaypoint(copied);
+        scan = laneScan;
+      }
+      if (!waypoint) {
+        const p = bot.entity.position;
+        const floor = p
+          .clone()
+          .set(start.x + 0.5, start.y - 0.5, start.z + 0.5)
+          .minus(p.offset(0, eyeHeight(bot), 0));
+        const beforeFloor = stationaryState(bot);
+        if (
+          !beforeFloor ||
+          !same(beforeFloor.pose.position, scan.pose.position)
+        )
+          return fail("pose_changed_before_floor_scan");
+        const floorLook = await runner.run(
+          {
+            type: "look",
+            yaw: Math.atan2(-floor.x, -floor.z),
+            pitch: Math.atan2(floor.y, Math.hypot(floor.x, floor.z)),
+            timeoutMs: 1500,
+          },
+          controller.signal,
+        );
+        if (!floorLook.ok || controller.signal.aborted)
+          return fail(`floor_look_${floorLook.code}`);
+        const floorState = stationaryState(bot);
+        if (!floorState || !same(floorState.pose.position, scan.pose.position))
+          return fail("pose_changed_after_floor_look");
+        const floorScan = await scanNearbyTerrain(context, runner, {
+          signal: controller.signal,
+        });
+        if (!floorScan.ok) return fail(`floor_scan_${floorScan.code}`);
+        if (!floorScan.complete || consumedScans.has(floorScan.scanId))
+          return fail("invalid_or_reused_floor_scan");
+        consumedScans.add(floorScan.scanId);
+        const afterFloor = stationaryState(bot);
+        const floorSession = context.readSession();
+        if (
+          controller.signal.aborted ||
+          !floorSession.active ||
+          floorSession.bot !== bot ||
+          floorSession.sessionId !== floorScan.sessionId ||
+          !afterFloor ||
+          floorScan.sessionId !== scan.sessionId ||
+          floorScan.dimension !== scan.dimension ||
+          afterFloor.entity !== state.entity ||
+          !same(floorScan.pose.position, scan.pose.position) ||
+          !same(afterFloor.pose.position, floorScan.pose.position) ||
+          afterFloor.pose.yaw !== floorScan.pose.yaw ||
+          afterFloor.pose.pitch !== floorScan.pose.pitch ||
+          floorScan.observation.cells.length !== 245 ||
+          floorScan.observation.views.length !== 3
+        )
+          return fail("floor_scan_handoff_changed");
+        if (
+          floorScan.observation.evidence.some(
+            (e) =>
+              e.x === target.x &&
+              e.y === target.y &&
+              e.z === target.z &&
+              e.conflict,
+          )
+        )
+          return fail("target_observation_conflict");
+        const combined = consistentVisibleCells(
+          copied,
+          floorScan.observation.cells,
+        );
+        if (!combined) return fail("inconsistent_scan_cells");
+        copied = combined;
+        observedTarget ||= targetSeen(floorScan);
+        waypoint = chooseWaypoint(copied);
+        scan = floorScan;
+      }
+      if (
+        !observedTarget ||
+        copied.find(
+          (c) => c.x === target.x && c.y === target.y && c.z === target.z,
+        )?.terrain !== "support"
+      )
+        return fail("target_not_observed_as_support");
       // Let queued client updates run before consuming the one-shot proposal.
       await new Promise<void>((resolve) => setImmediate(resolve));
       if (controller.signal.aborted)
@@ -373,7 +712,21 @@ export async function collectObservedDirt(
         controller.signal.aborted
       )
         return fail(`waypoint_${routed.code}`, undefined, routed);
+      if (
+        Math.abs(waypoint.to.x - target.x) +
+          Math.abs(waypoint.to.z - target.z) >
+        Math.abs(start.x - target.x) + Math.abs(start.z - target.z)
+      )
+        usedSideStep = true;
       steps++;
+      if (
+        !(await waitForSettledPose(
+          context,
+          controller.signal,
+          Math.min(1200, Math.max(0, deadline - performance.now())),
+        ))
+      )
+        return fail("arrival_not_settled");
       // The scan was consumed by WALK1. Loop obtains a new batch before WALK2.
     }
     return fail("waypoint_limit");
