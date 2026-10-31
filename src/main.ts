@@ -4,6 +4,8 @@ import { createLogger } from "./telemetry/logger.js";
 import { movementConsole } from "./demo.js";
 import { traceMotion } from "./telemetry/motion.js";
 import { installVelocityCompatibility } from "./minecraft/velocity-compat.js";
+import { ownAirView } from "./minecraft/air-compat.js";
+import { randomUUID } from "node:crypto";
 
 async function main() {
   const config = readConfig(process.env);
@@ -33,18 +35,31 @@ async function main() {
       const disposeCompatibility = installVelocityCompatibility(bot, log, () =>
         session.stop("invalid_velocity", 1),
       );
+      let air: ReturnType<typeof ownAirView> | undefined;
       try {
+        air = mode === "--movement-demo" ? ownAirView(bot) : undefined;
+        const sessionId = randomUUID();
+        let active = true;
         const disposeMode =
           mode === "--movement-demo"
-            ? movementConsole(bot, log, () => session.stop("demo_finished"))
+            ? movementConsole(bot, log, () => session.stop("demo_finished"), {
+                readSession: () => ({ bot, sessionId, active }),
+                readAir: () => air!.read(),
+              })
             : mode === "--motion-trace"
               ? traceMotion(bot, log)
               : undefined;
         return () => {
-          disposeMode?.();
-          disposeCompatibility();
+          active = false;
+          try {
+            disposeMode?.();
+          } finally {
+            air?.dispose();
+            disposeCompatibility();
+          }
         };
       } catch (error) {
+        air?.dispose();
         disposeCompatibility();
         throw error;
       }

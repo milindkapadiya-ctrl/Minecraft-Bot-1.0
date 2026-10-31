@@ -166,13 +166,16 @@ export function safeDig(
     }
     return false;
   }
+  // Keep the player's horizontal body at least 0.10 block clear of the
+  // target face (player half-width is 0.30). Check the actual settled pose;
+  // a walk_to arrival still refuses if it ends too close to the block.
+  const bodyClearance = 0.4;
   const physicallyAllowed =
     (adjacentSurface || adjacentWall) &&
-    Math.hypot(p.x - b.position.x - 0.5, p.z - b.position.z - 0.5) >= 1 &&
-    (p.x + 0.35 < b.position.x ||
-      p.x - 0.35 > b.position.x + 1 ||
-      p.z + 0.35 < b.position.z ||
-      p.z - 0.35 > b.position.z + 1) &&
+    (p.x + bodyClearance < b.position.x ||
+      p.x - bodyClearance > b.position.x + 1 ||
+      p.z + bodyClearance < b.position.z ||
+      p.z - bodyClearance > b.position.z + 1) &&
     bot.entity.onGround &&
     bot.canDigBlock(b);
   if (!physicallyAllowed) return false;

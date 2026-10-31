@@ -5,6 +5,8 @@ import { createRequire } from "node:module";
 import type { Bot } from "mineflayer";
 import { ActionRunner, validateAction } from "../src/actions/runner.js";
 import { collectNearbyDirt } from "../src/actions/collect-nearby.js";
+import { VisibleWalkPort } from "../src/integration/visible-walk-port.js";
+import { collectObservedDirt } from "../src/integration/observed-collection.js";
 import {
   digInventoryEvidence,
   inspect,
@@ -271,6 +273,16 @@ test("dig rejects underfoot, changed, occluded, and unsupported materials", asyn
     "not_ready",
   );
 });
+test("dig clearance accepts a guarded walk landing but refuses body overlap", () => {
+  const { bot, fake } = setup();
+  const grass = bot.blockAt(new Vec3(0, 63, -2))!;
+  fake.entity.position.set(0.5, 64, -0.573);
+  assert.equal(safeDig(bot, grass), true);
+  fake.entity.position.set(0.5, 64, -0.61);
+  assert.equal(safeDig(bot, grass), false);
+  fake.entity.position.set(0.5, 64, -1.5);
+  assert.equal(safeDig(bot, grass), false);
+});
 test("guarded dig permits one visible adjacent dirt wall but not a distant wall", () => {
   const { bot } = setup();
   const wall = bot.blockAt(new Vec3(1, 63, 1))!;
@@ -477,6 +489,65 @@ test("collection rejects a visible stone or sand target through the real runner"
       runner.close();
     }
   }
+});
+
+test("observed collection preserves failed dig preflight and unverified inventory evidence", async () => {
+  const { fake, bot, runner } = setup();
+  fake.entity.position.z = -0.5;
+  fake.blockName = "stone";
+  Object.assign(fake.entity, { isInWater: false });
+  Object.assign(fake.game, { dimension: "overworld" });
+  Object.assign(fake, { controlState: { forward: false } });
+  const ticks = setInterval(() => fake.emit("physicsTick"), 50);
+  try {
+    const result = await collectObservedDirt(
+      {
+        readSession: () => ({
+          bot,
+          sessionId: "offline-collection",
+          active: true,
+        }),
+        readAir: () => ({ status: "unknown", raw: null, oxygen: null }),
+      },
+      runner,
+      target,
+    );
+    assert.equal(result.code, "refused");
+    assert.equal(result.steps, 0);
+    assert.equal(result.collection?.code, "target_not_visible_or_changed");
+    assert.equal(result.collection?.evidence.status, "unverified");
+    assert.equal(fake.digs, 0);
+  } finally {
+    clearInterval(ticks);
+    runner.close();
+  }
+});
+
+test("visible one-step port prepares only a fresh guarded flat waypoint and aborts owned movement", async () => {
+  const { fake, bot, runner } = setup();
+  fake.entity.position = new Vec3(0.5, 64, -0.5);
+  fake.entity.pitch = -0.95;
+  const port = new VisibleWalkPort(bot, runner);
+  const segment = {
+    kind: "walk" as const,
+    from: { x: 0, y: 64, z: -1 },
+    to: { x: 0, y: 64, z: -2 },
+  };
+  const prepared = port.prepare(segment);
+  assert.equal(prepared.ok, true);
+  if (!prepared.ok) return;
+  assert.deepEqual(prepared.target, target);
+  const pending = port.run(
+    { type: "walk_to", target: prepared.target, timeoutMs: 1000 },
+    new AbortController().signal,
+  );
+  await next();
+  port.stop();
+  const result = await pending;
+  assert.equal(result.code, "cancelled");
+  assert.equal(fake.controls.size, 0);
+  assert.equal(port.prepare(segment).ok, false);
+  runner.close();
 });
 test("confirmed dig without a relevant pickup reports no collection evidence", async () => {
   const { fake, runner } = setup();
