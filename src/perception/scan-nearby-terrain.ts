@@ -170,7 +170,6 @@ export async function scanNearbyTerrain(
             event,
             event === "respawn" || event === "forcedMove" ? invalidate : watch,
           );
-        const wait = () => waitForReceipt(context, scope, now, guard, refuse);
         for (let i = 0; i < 3; i++) {
           {
             const beforeLook = guard().pose;
@@ -203,9 +202,44 @@ export async function scanNearbyTerrain(
             guard();
           }
           options.diagnosticTrace?.mark("view_start", undefined, i);
-          let acquired: Awaited<ReturnType<typeof wait>>;
+          let acquired: {
+            capture: Extract<ReturnType<typeof captureView>, { ok: true }>;
+            readiness: Acquisition["readiness"];
+          };
           try {
-            acquired = await wait();
+            acquired = await captureAtReceipt(
+              context,
+              scope,
+              now,
+              guard,
+              refuse,
+              (receipt) => {
+                options.diagnosticTrace?.mark("view_ready", "ready", i);
+                guard();
+                const viewId = `${scanId}:${i}`;
+                const capture = scope.observe(() =>
+                  captureView(
+                    {
+                      ...context,
+                      readSession: () => context.readSession(),
+                      stationarity: receipt,
+                    },
+                    { scanId, viewId },
+                    { now, observe: options.observe ?? observeNearbyTerrain },
+                  ),
+                );
+                if (!capture.ok) refuse(capture.code);
+                guard();
+                return {
+                  capture,
+                  readiness: {
+                    startedAtMs: receipt.startedAtMs,
+                    completedAtMs: receipt.completedAtMs,
+                    samples: receipt.samples,
+                  },
+                };
+              },
+            );
           } catch (error) {
             options.diagnosticTrace?.mark(
               "view_refused",
@@ -214,36 +248,13 @@ export async function scanNearbyTerrain(
             );
             throw error;
           }
-          options.diagnosticTrace?.mark("view_ready", "ready", i);
-          try {
-            guard();
-            const viewId = `${scanId}:${i}`;
-            const capture = scope.observe(() =>
-              captureView(
-                {
-                  ...context,
-                  readSession: () => context.readSession(),
-                  stationarity: acquired.receipt,
-                },
-                { scanId, viewId },
-                { now, observe: options.observe ?? observeNearbyTerrain },
-              ),
-            );
-            if (!capture.ok) refuse(capture.code);
-            guard();
-            views.push(capture.view);
-            acquisitions.push({
-              viewId,
-              ...capture.acquisition,
-              readiness: {
-                startedAtMs: acquired.receipt.startedAtMs,
-                completedAtMs: acquired.receipt.completedAtMs,
-                samples: acquired.receipt.samples,
-              },
-            });
-          } finally {
-            acquired.dispose();
-          }
+          guard();
+          views.push(acquired.capture.view);
+          acquisitions.push({
+            viewId: acquired.capture.view.viewId,
+            ...acquired.capture.acquisition,
+            readiness: acquired.readiness,
+          });
         }
         const observation = scope.observe(() => mergeObservations(views));
         if (
@@ -393,13 +404,14 @@ async function ownedLook(scope: ExclusiveContext, yaw: number, pitch: number) {
   }
 }
 
-function waitForReceipt(
+function captureAtReceipt<T>(
   context: ScanContext,
   scope: ExclusiveContext,
   now: () => number,
   guard: () => unknown,
   refuse: (code: string) => never,
-): Promise<{ receipt: StationaryEvidence; dispose: () => void }> {
+  capture: (receipt: StationaryEvidence) => T,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const bot = context.readSession().bot;
     const started = now();
@@ -422,17 +434,25 @@ function waitForReceipt(
       scope.signal.removeEventListener("abort", abort);
       collector.dispose();
     };
-    // Keep collector alive through capture: disposing would revoke its receipt.
+    let finished = false;
+    // Capture synchronously in the event that supplies readiness. Mineflayer
+    // may emit multiple catch-up ticks before a Promise continuation runs;
+    // transferring a receipt across that gap correctly revokes it. Keep the
+    // collector alive through this one read, then dispose it. No TTL extension,
+    // stale receipt reuse, retry, or relaxation of exact pose checks.
     const finish = (error?: unknown) => {
+      if (finished) return;
+      finished = true;
       clearTimeout(timer);
       bot.off("physicsTick", tick);
       scope.signal.removeEventListener("abort", abort);
-      if (error) {
+      try {
+        if (error) reject(error);
+        else resolve(capture(collector.evidence()!));
+      } catch (cause) {
+        reject(cause);
+      } finally {
         collector.dispose();
-        reject(error);
-      } else {
-        const receipt = collector.evidence()!;
-        resolve({ receipt, dispose: () => collector.dispose() });
       }
     };
     const abort = () => finish(new Error("action_expired"));

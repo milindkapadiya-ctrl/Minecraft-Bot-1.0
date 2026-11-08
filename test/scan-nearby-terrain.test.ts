@@ -147,6 +147,51 @@ function fixture() {
   };
 }
 
+test("synchronous catch-up physics ticks capture current receipt before the next tick revokes it", async () => {
+  const f = fixture();
+  const result = await f.drive(
+    scanNearbyTerrain(f.context, f.runner, f.options),
+    () => {
+      f.advance(50);
+      f.raw.emit("physicsTick");
+    },
+  );
+  assert.equal(result.ok, true, JSON.stringify(result));
+  f.clean();
+});
+
+test("post-capture catch-up movement, camera changes and cancellation still refuse the whole scan", async (t) => {
+  for (const fault of ["position", "camera", "cancel"] as const)
+    await t.test(fault, async () => {
+      const f = fixture();
+      let turns = 0;
+      const result = await f.drive(
+        scanNearbyTerrain(f.context, f.runner, f.options),
+        () => {
+          f.advance(50);
+          f.raw.emit("physicsTick");
+          if (++turns !== 3) return;
+          assert.ok(
+            f.raw.reads > 0,
+            "first view captured at readiness before injected event",
+          );
+          if (fault === "cancel") f.signal.abort();
+          else {
+            if (fault === "position") f.raw.entity.position.x += 0.01;
+            else f.raw.entity.yaw += 0.01;
+            f.advance(1);
+            f.raw.emit("physicsTick");
+            if (fault === "position") f.raw.entity.position.x -= 0.01;
+            else f.raw.entity.yaw -= 0.01;
+          }
+        },
+      );
+      assert.equal(result.ok, false);
+      assert.equal(f.raw.controlState.forward, false);
+      f.clean();
+    });
+});
+
 test("world update during an owned scan stops observed collection before movement or digging", async () => {
   const f = fixture();
   let ticks = 0;
