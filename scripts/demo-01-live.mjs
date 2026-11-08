@@ -290,8 +290,22 @@ try {
     appendFileSync(resolve(directory, "server-console.log"), chunk),
   );
   serverExit = new Promise((accept) =>
-    server.once("close", (code) => {
+    server.once("close", (code, signal) => {
       exited = true;
+      // Preserve a late close independently; never rewrite an earlier timeout
+      // as a pass or silently lose the process exit evidence.
+      const exitEvidence = {
+        code,
+        signal,
+        pid: server.pid,
+        at: new Date().toISOString(),
+        afterStopTimeout: result.serverExit === "stop_timeout",
+      };
+      record("server_exit", exitEvidence);
+      writeFileSync(
+        resolve(directory, "server-exit.json"),
+        JSON.stringify(exitEvidence, null, 2),
+      );
       readyReject(Error("server_closed_before_ready"));
       accept(code);
     }),
