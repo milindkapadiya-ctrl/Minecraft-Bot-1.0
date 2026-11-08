@@ -71,3 +71,7 @@ Published implementation: `19edd8a1d156c80c58ae8f66835eeeab975d4ecc` on `origin/
 ## Unattended follow-up publication
 
 This follow-up changes documentation only; the local existing plan records actual authorization without changing run IDs or inventing readiness. Publish on `codex/mcbot-demo-02`, base `codex/mcbot-reliability-01`. The prior draft-PR creation returned403, Resource not accessible by integration; no PR exists and that denied creation is not retried here. Prepared current title: “Prepare DEMO-02 campaign and preserve attempts after unattended capture refusal.” Prepared body: The separate two-scenario campaign retains reviewed gameplay and shutdown safety. A real desktop-only feasibility investigation could not verify recorder capture/stop/save or meaningful decoded frames; both newly authorized attempts remain unconsumed. No production behavior changed in this follow-up. Fresh full gate702/702 and focused37/37 pass; no live/video acceptance is claimed. See this report for concrete automation errors, incomplete recorder UI cleanup and the next capture/observer prerequisite.
+
+## CAMERA-01 continuation
+
+The user authorizes official OBS and observer-only administrative Spectator setup in these same two worlds. Both attempts remain preserved. OBS is deployed, with API control disabled pending network isolation; no actual video proof or graphical observer is ready. The live harness has not been bypassed or wired to unverified prerequisites. [Camera checkpoint](mcbot-camera-01.md).

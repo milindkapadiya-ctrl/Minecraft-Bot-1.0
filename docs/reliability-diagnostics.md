@@ -62,3 +62,7 @@ Acceptance requires fresh north and west technical evidence, a playable reviewed
 The separate `scripts/demo-02-live.mjs` consumes the prepared DEMO-02 plan, not DEMO-01 scenario markers. See [DEMO-02 handoff](workstreams/mcbot-demo-02.md). Both live authorization and human recording preflight remain pending; no video exists.
 
 DEMO-02 now has explicit two-attempt unattended authorization. The current desktop capture feasibility check failed; see the current workstream report. Do not interpret authorization as capture readiness or fabricate the existing human confirmation fields. Neither live attempt has been consumed.
+
+## CAMERA-01 update
+
+Official OBS is deployed, but authenticated remote control is intentionally disabled until localhost-only access can be enforced. Client-side loopback URLs do not constrain the actual listener. No OBS recording/decoding or graphical Minecraft observer has been verified. The observer-only Spectator exception is now authorized for the two existing disposable worlds, without any gameplay-bot privileges or observation feed. See [camera workstream](workstreams/mcbot-camera-01.md).
