@@ -39,6 +39,7 @@ public static class WindowsVideoDecode {
         public int Width {get;set;}
         public int Height {get;set;}
         public int DecodedFrames {get;set;}
+        public double LastFrameSeconds {get;set;}
         public bool EndOfStream {get;set;}
         public List<Frame> Samples {get;set;} = new List<Frame>();
     }
@@ -51,7 +52,9 @@ public static class WindowsVideoDecode {
             w.Write(pixels);
         }
     }
-    public static Result Decode(string file,string output) {
+    public static Result Decode(string file,string output) { return Decode(file,output,120,30000,1); }
+    public static Result Decode(string file,string output,int maxSeconds,int deadlineMs,int sampleSeconds) {
+        if(maxSeconds<1 || maxSeconds>600 || deadlineMs<1000 || deadlineMs>180000 || sampleSeconds<1 || sampleSeconds>2) throw new Exception("invalid_decode_limits");
         const uint video=0xfffffffc, all=0xfffffffe;
         IntPtr attributes=IntPtr.Zero,reader=IntPtr.Zero,type=IntPtr.Zero,current=IntPtr.Zero;
         bool started=false; var result=new Result(); var watch=Stopwatch.StartNew();
@@ -77,8 +80,8 @@ public static class WindowsVideoDecode {
             result.Width=(int)(size>>32); result.Height=(int)(size&0xffffffff);
             if(result.Width<1 || result.Height<1 || result.Width>4096 || result.Height>2160) throw new Exception("unsupported_frame_dimensions");
             Directory.CreateDirectory(output); long nextSample=0;
-            for(int i=0;i<4000;i++) {
-                if(watch.ElapsedMilliseconds>30000) throw new Exception("decode_deadline");
+            for(int i=0;i<maxSeconds*120+100;i++) {
+                if(watch.ElapsedMilliseconds>deadlineMs) throw new Exception("decode_deadline");
                 IntPtr sample=IntPtr.Zero,buffer=IntPtr.Zero; bool locked=false;
                 try {
                     uint actual,flags; long time;
@@ -86,8 +89,10 @@ public static class WindowsVideoDecode {
                     if((flags&1)!=0) throw new Exception("decoder_stream_error");
                     if((flags&2)!=0) { result.EndOfStream=true; break; }
                     if(sample==IntPtr.Zero) continue;
+                    if(time<0 || time>maxSeconds*10000000L) throw new Exception("video_duration_limit");
                     result.DecodedFrames++;
-                    if(time<nextSample || result.Samples.Count>=30) continue;
+                    result.LastFrameSeconds=time/10000000.0;
+                    if(time<nextSample) continue;
                     Check(Method<GetBuffer>(sample,41)(sample,out buffer));
                     IntPtr data; uint max,length;
                     Check(Method<LockBuffer>(buffer,3)(buffer,out data,out max,out length)); locked=true;
@@ -100,11 +105,13 @@ public static class WindowsVideoDecode {
                         colors.Add((r<<16)|(g<<8)|b); if(r+g+b>48) lit++;
                     }
                     string bitmap=Path.Combine(output,"frame-"+result.Samples.Count.ToString("D2")+".bmp");
-                    Bitmap(bitmap,pixels,result.Width,result.Height);
+                    // Keep hashes throughout the clip; bounded image exports avoid gigabytes of BMPs.
+                    if(result.Samples.Count<24) Bitmap(bitmap,pixels,result.Width,result.Height);
+                    else bitmap=null;
                     result.Samples.Add(new Frame { Seconds=time/10000000.0, Bitmap=bitmap,
                         Sha256=Convert.ToHexString(SHA256.HashData(pixels)).ToLowerInvariant(),
                         Nonblank=colors.Count>=8 && lit>pixels.Length/64/100 });
-                    nextSample=time+10000000;
+                    nextSample=time+sampleSeconds*10000000L;
                 } finally {
                     try { if(locked) Check(Method<UnlockBuffer>(buffer,4)(buffer)); }
                     finally { Release(ref buffer); Release(ref sample); }
