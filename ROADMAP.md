@@ -1,5 +1,7 @@
 # Roadmap
 
+**MCBOT-CAMERA-02:** scoped OBS TCP4457 firewall deny rule installed through normal UAC; actual localhost authentication passed, but a same-host non-loopback probe connected and independent external isolation remains unverified. WebSocket is disabled. No recording or rendered spectator view verified; the signed-in launcher launched26.1, but Java-window inspection hit an app-approval timeout. One earlier OBS startup process remains uncleared; the working OBS instance and Java client closed normally. Both live attempts remain untouched. Full offline gate727/727; focused62/62. [Current evidence, rollback and next cycle](docs/workstreams/mcbot-camera-02.md).
+
 **MCBOT-CAMERA-01:** official OBS33.0.1 ARM64 deployed and verified; bounded OBS control/video-proof and spectator-isolation components added. WebSocket remains disabled: actual build binds all interfaces, and the narrow isolation rule failed with OS access denied. No recording/decoded frames or graphical observer verified; both approved DEMO-02 attempts preserved. [Current evidence and limits](docs/workstreams/mcbot-camera-01.md).
 
 **2026-11-08 unattended preflight:** two pit attempts authorized and preserved; recorder overlays could not be safely targeted, no saved/decoded video or gameplay view verified. Fresh offline gate702/702, focused37/37. Next: validate desktop-only capture and unattended observer before consuming either attempt. [Evidence](docs/workstreams/mcbot-demo-02.md).

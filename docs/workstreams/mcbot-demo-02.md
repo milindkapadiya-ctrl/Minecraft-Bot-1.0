@@ -75,3 +75,7 @@ This follow-up changes documentation only; the local existing plan records actua
 ## CAMERA-01 continuation
 
 The user authorizes official OBS and observer-only administrative Spectator setup in these same two worlds. Both attempts remain preserved. OBS is deployed, with API control disabled pending network isolation; no actual video proof or graphical observer is ready. The live harness has not been bypassed or wired to unverified prerequisites. [Camera checkpoint](mcbot-camera-01.md).
+
+## CAMERA-02 continuation
+
+Both original attempts remain authorized and unconsumed; the campaign root remains absent and all15 prior evidence hashes are unchanged. No harness gate or gameplay contract changed. Actual OBS localhost control and signed-in launcher/client launch were observed, but external isolation, actual recording and the rendered observer view remain unverified. An earlier OBS startup process still requires normal cleanup. [Current CAMERA-02 evidence and remaining prerequisites](mcbot-camera-02.md).

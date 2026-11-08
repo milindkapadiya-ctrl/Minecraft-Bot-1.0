@@ -66,3 +66,7 @@ DEMO-02 now has explicit two-attempt unattended authorization. The current deskt
 ## CAMERA-01 update
 
 Official OBS is deployed, but authenticated remote control is intentionally disabled until localhost-only access can be enforced. Client-side loopback URLs do not constrain the actual listener. No OBS recording/decoding or graphical Minecraft observer has been verified. The observer-only Spectator exception is now authorized for the two existing disposable worlds, without any gameplay-bot privileges or observation feed. See [camera workstream](workstreams/mcbot-camera-01.md).
+
+## CAMERA-02 update
+
+A narrowly scoped OBS firewall rule is installed, but external isolation is not verified; WebSocket remains disabled. No video or rendered spectator view is accepted. The working OBS instance closed normally, while an earlier hidden startup process remains an explicit cleanup failure. Both live attempts remain unconsumed. See [CAMERA-02](workstreams/mcbot-camera-02.md) for actual network/client evidence, conservative preflight checks, exact rollback and operator requirements.
