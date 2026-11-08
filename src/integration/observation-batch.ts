@@ -41,6 +41,7 @@ export class ObservationBatch {
   #pending = false;
   #looks = 0;
   #scans: Extract<ScanResult, { ok: true }>[] = [];
+  #scanFailure: Extract<ScanResult, { ok: false }> | undefined;
   #aggregate = visibleCellBatch();
   #cells: readonly KnownCell[] = [];
   #decisions = 0;
@@ -109,6 +110,9 @@ export class ObservationBatch {
       scans: this.#scans.length,
       decisions: this.#decisions,
       evaluations: this.#evaluations,
+      ...(this.#scanFailure
+        ? { scanFailure: structuredClone(this.#scanFailure) }
+        : {}),
     };
   }
 
@@ -254,6 +258,7 @@ export class ObservationBatch {
         { signal: this.#signal },
       );
       const result = await pending;
+      if (!result.ok) this.#scanFailure = structuredClone(result);
       this.#guard(owner);
       if (!result.ok) throw Error(`scan_${result.code}`);
       const snapshot = copyCompletedScan(result, {

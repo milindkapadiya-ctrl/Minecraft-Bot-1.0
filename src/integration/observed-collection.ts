@@ -16,7 +16,10 @@ import {
   OfflineRouteExecutor,
   type RouteResult,
 } from "../navigation/route-executor.js";
-import type { ScanContext } from "../perception/scan-nearby-terrain.js";
+import type {
+  ScanContext,
+  ScanResult,
+} from "../perception/scan-nearby-terrain.js";
 import {
   collectStationarity,
   stationaryState,
@@ -42,6 +45,7 @@ type ObservedCollectionOutcome =
 /** Historical diagnostics only, returned after operation completion. No cells
  * or execution/admission capabilities leave the production collector. */
 export interface NavigationEvidence {
+  scanFailure?: Extract<ScanResult, { ok: false }>;
   scans: number;
   decisions: number;
   evaluations: number;

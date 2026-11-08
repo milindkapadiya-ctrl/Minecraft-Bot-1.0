@@ -2,9 +2,10 @@ import type { Bot } from "mineflayer";
 import { performance } from "node:perf_hooks";
 import {
   stationaryState as state,
-  claimStationarity,
+  claimStationarityDetailed,
   consumeStationarity,
   type StationaryEvidence,
+  type ReceiptRefusal,
 } from "./stationarity.js";
 import { observeNearbyTerrain } from "./nearby-terrain.js";
 import { mergeObservations, type CapturedView } from "./merge-observations.js";
@@ -31,6 +32,7 @@ export type CaptureResult =
     }
   | {
       ok: false;
+      reason?: ReceiptRefusal;
       code:
         | "invalid_context"
         | "invalid_metadata"
@@ -54,7 +56,8 @@ export function captureView(
 ): CaptureResult {
   const fail = (
     code: Extract<CaptureResult, { ok: false }>["code"],
-  ): CaptureResult => ({ ok: false, code });
+    reason?: ReceiptRefusal,
+  ): CaptureResult => ({ ok: false, code, ...(reason ? { reason } : {}) });
   let failure: Extract<CaptureResult, { ok: false }>["code"] =
     "invalid_context";
   let evidence: StationaryEvidence | undefined;
@@ -62,15 +65,17 @@ export function captureView(
     evidence = context.stationarity;
     const session = context.readSession();
     if (!session.active || !validId(session.sessionId))
-      return fail("invalid_context");
+      return fail("invalid_context", "session_changed");
     const { bot, sessionId } = session;
     failure = "invalid_metadata";
     const { scanId, viewId } = request;
     if (!validId(scanId) || !validId(viewId)) return fail("invalid_metadata");
     failure = "invalid_context";
     const before = state(bot);
-    const recheckStationarity = claimStationarity(evidence, context);
-    if (!before || !recheckStationarity) return fail("invalid_context");
+    const claim = claimStationarityDetailed(evidence, context);
+    if (!before) return fail("invalid_context", "unsafe_state");
+    if (!claim.ok) return fail("invalid_context", claim.reason);
+    const recheckStationarity = claim.recheck;
     const now = options.now ?? (() => Math.floor(performance.now()));
     failure = "invalid_time";
     const startedAtMs = now();

@@ -246,31 +246,51 @@ export function collectStationarity(
   return { evidence: () => evidence, dispose };
 }
 
-export function validateStationarity(
+export type ReceiptRefusal =
+  | "missing_receipt"
+  | "unknown_receipt"
+  | "used_receipt"
+  | "receipt_invalidated"
+  | "session_changed"
+  | "unsafe_state"
+  | "pose_changed"
+  | "context_unavailable";
+
+function receiptRefusal(
   evidence: StationaryEvidence | undefined,
   context: StationarySession,
 ) {
   try {
-    if (!evidence || typeof evidence !== "object") return false;
+    if (!evidence || typeof evidence !== "object")
+      return "missing_receipt" as const;
     const receipt = receipts.get(evidence);
-    if (!receipt || receipt.used || !receipt.valid()) return false;
+    if (!receipt) return "unknown_receipt" as const;
+    if (receipt.used) return "used_receipt" as const;
+    if (!receipt.valid()) return "receipt_invalidated" as const;
     const s = context.readSession(),
       original = receipt.context.readSession();
     const state = stationaryState(s.bot);
-    return (
-      s.active &&
-      original.active &&
-      s.bot === receipt.bot &&
-      original.bot === receipt.bot &&
-      s.sessionId === receipt.sessionId &&
-      original.sessionId === receipt.sessionId &&
-      !!state &&
-      state.health >= receipt.state.health &&
-      samePose(state, receipt.state)
-    );
+    if (
+      !s.active ||
+      !original.active ||
+      s.bot !== receipt.bot ||
+      original.bot !== receipt.bot ||
+      s.sessionId !== receipt.sessionId ||
+      original.sessionId !== receipt.sessionId
+    )
+      return "session_changed" as const;
+    if (!state || state.health < receipt.state.health)
+      return "unsafe_state" as const;
+    return samePose(state, receipt.state) ? null : ("pose_changed" as const);
   } catch {
-    return false;
+    return "context_unavailable" as const;
   }
+}
+export function validateStationarity(
+  evidence: StationaryEvidence | undefined,
+  context: StationarySession,
+) {
+  return receiptRefusal(evidence, context) === null;
 }
 export function consumeStationarity(evidence: StationaryEvidence | undefined) {
   if (evidence && typeof evidence === "object") {
@@ -284,10 +304,20 @@ export function claimStationarity(
   evidence: StationaryEvidence | undefined,
   context: StationarySession,
 ) {
-  if (!validateStationarity(evidence, context)) return undefined;
+  const result = claimStationarityDetailed(evidence, context);
+  return result.ok ? result.recheck : undefined;
+}
+
+/** Same admission predicates, with a finite refusal label; no extra clock read. */
+export function claimStationarityDetailed(
+  evidence: StationaryEvidence | undefined,
+  context: StationarySession,
+) {
+  const reason: ReceiptRefusal | null = receiptRefusal(evidence, context);
+  if (reason) return { ok: false as const, reason };
   const receipt = receipts.get(evidence!)!;
   receipt.used = true;
-  return () => {
+  const recheck = () => {
     try {
       if (!receipt.valid()) return false;
       const current = context.readSession(),
@@ -308,4 +338,5 @@ export function claimStationarity(
       return false;
     }
   };
+  return { ok: true as const, recheck };
 }

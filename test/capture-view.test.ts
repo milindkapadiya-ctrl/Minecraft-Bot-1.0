@@ -87,6 +87,41 @@ function fixture() {
     reads: () => reads,
   };
 }
+test("receipt refusal diagnostics distinguish expired, session, pose and single-use evidence", async (t) => {
+  for (const fault of [
+    "expired",
+    "session",
+    "pose",
+    "used",
+    "missing",
+  ] as const)
+    await t.test(fault, () => {
+      const f = fixture();
+      try {
+        if (fault === "expired") f.expire();
+        if (fault === "session") f.session.sessionId = "other";
+        if (fault === "pose") f.raw.entity.position.x += 0.01;
+        if (fault === "used")
+          assert.equal(captureView(f.context, request).ok, true);
+        if (fault === "missing") f.context.stationarity = undefined;
+        const result = captureView(f.context, request);
+        assert.equal(result.ok, false);
+        if (result.ok) assert.fail();
+        assert.equal(
+          result.reason,
+          {
+            expired: "receipt_invalidated",
+            session: "session_changed",
+            pose: "pose_changed",
+            used: "used_receipt",
+            missing: "missing_receipt",
+          }[fault],
+        );
+      } finally {
+        f.collector.dispose();
+      }
+    });
+});
 function captured(result: ReturnType<typeof captureView>) {
   assert.equal(result.ok, true);
   if (!result.ok) throw Error("capture failed");
@@ -175,6 +210,10 @@ test("invalid initial pose, motion, controls and lifecycle fail before terrain r
     assert.deepEqual(captureView(f.context, request), {
       ok: false,
       code: "invalid_context",
+      reason:
+        !f.session.active || !f.session.sessionId
+          ? "session_changed"
+          : "unsafe_state",
     });
     assert.equal(f.reads(), 0);
   }
@@ -399,7 +438,17 @@ test("receipts are authentic, single-use and expire before capture reads", () =>
     const reads = f.reads();
     assert.deepEqual(
       captureView(f.context, request),
-      { ok: false, code: "invalid_context" },
+      {
+        ok: false,
+        code: "invalid_context",
+        reason: {
+          missing: "missing_receipt",
+          forged: "unknown_receipt",
+          expired: "receipt_invalidated",
+          disposed: "receipt_invalidated",
+          replay: "used_receipt",
+        }[fault],
+      },
       fault,
     );
     assert.equal(f.reads(), reads);
@@ -435,7 +484,15 @@ test("handoff rechecks pose, session, health and recognized vertical velocity", 
     if (fault === "invalid") f.bot.entity.velocity.x = NaN;
     assert.deepEqual(
       captureView(f.context, request),
-      { ok: false, code: "invalid_context" },
+      {
+        ok: false,
+        code: "invalid_context",
+        reason: ["session", "inactive"].includes(fault)
+          ? "session_changed"
+          : ["position", "yaw", "pitch"].includes(fault)
+            ? "pose_changed"
+            : "unsafe_state",
+      },
       fault,
     );
     assert.equal(f.reads(), 0);
@@ -508,6 +565,10 @@ test("a reentrant acquisition cannot spend the same stationary receipt twice", (
       return observeNearbyTerrain(bot);
     },
   });
-  assert.deepEqual(inner, { ok: false, code: "invalid_context" });
+  assert.deepEqual(inner, {
+    ok: false,
+    code: "invalid_context",
+    reason: "used_receipt",
+  });
   captured(outer);
 });

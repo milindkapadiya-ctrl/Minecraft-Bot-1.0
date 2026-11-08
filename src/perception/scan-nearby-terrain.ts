@@ -44,7 +44,11 @@ export type ScanResult =
       acquisitions: Acquisition[];
       observation: Extract<MergeResult, { ok: true }>;
     }
-  | { ok: false; code: string };
+  | {
+      ok: false;
+      code: string;
+      detail?: { stage: "capture"; view: number; reason: string };
+    };
 type Options = {
   /** Passive diagnostic markers; never consulted for scan decisions. */
   diagnosticTrace?: PhysicsDiagnosticTrace;
@@ -78,6 +82,7 @@ export async function scanNearbyTerrain(
     ? AbortSignal.any([options.signal, cancellation.signal])
     : cancellation.signal;
   let failure: string | undefined;
+  let detail: Extract<ScanResult, { ok: false }>["detail"];
   let originState: NonNullable<ReturnType<typeof stationaryState>> | undefined;
   let completed: Extract<ScanResult, { ok: true }> | undefined;
   let originBot: ReturnType<ScanContext["readSession"]>["bot"] | undefined;
@@ -228,7 +233,14 @@ export async function scanNearbyTerrain(
                     { now, observe: options.observe ?? observeNearbyTerrain },
                   ),
                 );
-                if (!capture.ok) refuse(capture.code);
+                if (!capture.ok) {
+                  detail = {
+                    stage: "capture",
+                    view: i,
+                    reason: capture.reason ?? capture.code,
+                  };
+                  refuse(capture.code);
+                }
                 guard();
                 return {
                   capture,
@@ -360,7 +372,11 @@ export async function scanNearbyTerrain(
     failure ||
     !completed
   )
-    return { ok: false, code: failure ?? action.code };
+    return {
+      ok: false,
+      code: failure ?? action.code,
+      ...(detail ? { detail } : {}),
+    };
   // runExclusive has now released ownership and completed guarded cleanup.
   try {
     const session = context.readSession(),

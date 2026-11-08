@@ -45,6 +45,21 @@ test("a retired scanner callback cannot cancel a later independent child", async
   }
 });
 
+test("interrupted supplementary acquisition cannot reuse the first scan or decide", async () => {
+  await fixture(async ({ batch, owner, raw }) => {
+    await batch.scan(owner);
+    assert.equal(batch.diagnostics.scans, 1);
+    await batch.look(owner, -Math.PI / 2, -0.8);
+    const pending = batch.scan(owner);
+    raw.once("physicsTick", () => raw.emit("blockUpdate"));
+    await assert.rejects(pending, /batch_refused/);
+    assert.equal(batch.diagnostics.scans, 1);
+    assert.equal(batch.diagnostics.decisions, 0);
+    assert.ok(batch.diagnostics.scanFailure);
+    assert.throws(() => batch.seal(owner));
+  });
+});
+
 test("the route deadline aborts acquisition independently of the operation deadline", async () => {
   await fixture(async ({ batch, owner, context }) => {
     batch.dispose();

@@ -224,6 +224,113 @@ function success(result: ScanResult) {
 }
 const request = { type: "inventory", timeoutMs: 100 };
 
+test("bursts of two through eight ticks acquire three legitimate views and allow a new scan", async (t) => {
+  for (let burst = 2; burst <= 8; burst++)
+    await t.test(`burst ${burst}`, async () => {
+      const f = fixture();
+      const initial = { yaw: f.raw.entity.yaw, pitch: f.raw.entity.pitch };
+      for (let run = 0; run < 2; run++) {
+        let captures = 0;
+        const result = success(
+          await f.drive(
+            scanNearbyTerrain(f.context, f.runner, {
+              ...f.options,
+              observe(bot) {
+                captures++;
+                return observeNearbyTerrain(bot);
+              },
+            }),
+            () => {
+              for (let i = 1; i < burst; i++) {
+                f.advance(50);
+                f.raw.emit("physicsTick");
+              }
+            },
+          ),
+        );
+        assert.equal(captures, 3);
+        assert.equal(result.acquisitions.length, 3);
+        assert.equal(f.raw.entity.yaw, initial.yaw);
+        assert.equal(f.raw.entity.pitch, initial.pitch);
+        for (const acquisition of result.acquisitions) {
+          assert.ok(acquisition.readiness.samples >= 5);
+          assert.ok(
+            acquisition.readiness.completedAtMs -
+              acquisition.readiness.startedAtMs >=
+              200,
+          );
+        }
+        f.clean();
+      }
+      assert.equal(
+        f.records.filter((r) => r.event === "action_started").length,
+        2,
+      );
+    });
+});
+
+test("collision just before readiness revokes all credit and requires five new samples in each view", async () => {
+  const f = fixture();
+  let captures = 0;
+  const pending = scanNearbyTerrain(f.context, f.runner, {
+    ...f.options,
+    observe(bot) {
+      captures++;
+      return observeNearbyTerrain(bot);
+    },
+  });
+  await turn();
+  for (let view = 0; view < 3; view++) {
+    for (let i = 0; i < 4; i++) await f.tick();
+    await f.tick(0);
+    assert.equal(captures, view);
+    for (let i = 0; i < 4; i++) await f.tick();
+    assert.equal(
+      captures,
+      view,
+      "collided timestamps cannot complete a view early",
+    );
+    f.advance(50);
+    f.raw.emit("physicsTick");
+    assert.equal(
+      captures,
+      view + 1,
+      "capture completes synchronously at genuine readiness",
+    );
+    f.raw.emit("physicsTick");
+    await turn();
+  }
+  assert.equal((await f.drive(pending)).ok, true);
+  f.clean();
+});
+
+test("cancellation or a reentrant tick during capture publishes no map and cleans ownership", async (t) => {
+  for (const fault of ["cancel", "tick"] as const)
+    await t.test(fault, async () => {
+      const f = fixture();
+      let captures = 0;
+      const result = await f.drive(
+        scanNearbyTerrain(f.context, f.runner, {
+          ...f.options,
+          observe(bot) {
+            captures++;
+            if (fault === "cancel") f.signal.abort();
+            else {
+              f.advance(1);
+              f.raw.emit("physicsTick");
+            }
+            return observeNearbyTerrain(bot);
+          },
+        }),
+      );
+      assert.equal(result.ok, false);
+      assert.equal(captures, 1);
+      assert.ok(!("observation" in result));
+      f.clean();
+      assert.equal((await f.runner.run(request)).code, "ok");
+    });
+});
+
 test("completed production scan uses one reservation, three fresh views, truthful provenance and restored pose", async () => {
   const f = fixture();
   const initial = { yaw: f.raw.entity.yaw, pitch: f.raw.entity.pitch };
