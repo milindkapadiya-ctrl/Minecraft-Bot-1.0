@@ -1,4 +1,5 @@
 import { performance } from "node:perf_hooks";
+import type { EventEmitter } from "node:events";
 import type { Bot } from "mineflayer";
 import {
   collectNearbyDirt,
@@ -26,6 +27,8 @@ import {
   stationaryState,
 } from "../perception/stationarity.js";
 import { VisibleWalkPort } from "./visible-walk-port.js";
+import { copyCompletedScan } from "./scan-snapshot.js";
+import { visibleCellBatch } from "./visible-cell-batch.js";
 
 export type ObservedCollectionResult =
   | {
@@ -50,11 +53,13 @@ const invalidationEvents = [
   "forcedMove",
   "end",
 ] as const;
-type InvalidationEvent = (typeof invalidationEvents)[number];
+type InvalidationEvent =
+  | (typeof invalidationEvents)[number]
+  | "session_changed"
+  | "monitoring_interrupted";
 
 const same = (a: Position, b: Position) =>
   a.x === b.x && a.y === b.y && a.z === b.z;
-const key = (p: Position) => `${p.x},${p.y},${p.z}`;
 const cell = (p: Position): Position => ({
   x: Math.floor(p.x),
   y: Math.floor(p.y),
@@ -63,58 +68,6 @@ const cell = (p: Position): Position => ({
 const adjacent = (standing: Position, target: Target) =>
   standing.y === target.y + 1 &&
   Math.abs(standing.x - target.x) + Math.abs(standing.z - target.z) === 1;
-const eventPosition = (block: unknown): Position | null => {
-  try {
-    if (!block || typeof block !== "object" || !("position" in block))
-      return null;
-    const position = block.position;
-    if (!position || typeof position !== "object") return null;
-    const p = position as Partial<Position>;
-    const { x, y, z } = p;
-    if (
-      typeof x !== "number" ||
-      typeof y !== "number" ||
-      typeof z !== "number" ||
-      ![x, y, z].every(Number.isSafeInteger) ||
-      Math.abs(x) > 30000000 ||
-      Math.abs(z) > 30000000 ||
-      Math.abs(y) > 4096
-    )
-      return null;
-    return { x, y, z };
-  } catch {
-    return null;
-  }
-};
-
-/** Scanner cells are within three horizontal cells and one-below to
- * three-above each stationary anchor. The extra two-cell margin covers rays,
- * braking support and the next single-step arrival. Unknown event geometry
- * never grants an exception to invalidation.
- */
-const outsideRouteRegion = (
-  oldBlock: unknown,
-  newBlock: unknown,
-  anchors: readonly Position[],
-) => {
-  const oldPosition = eventPosition(oldBlock);
-  const newPosition = eventPosition(newBlock);
-  if (
-    !oldPosition ||
-    !newPosition ||
-    !same(oldPosition, newPosition) ||
-    anchors.length === 0
-  )
-    return false;
-  return anchors.every(
-    (anchor) =>
-      Math.abs(newPosition.x - anchor.x) > 5 ||
-      Math.abs(newPosition.z - anchor.z) > 5 ||
-      newPosition.y < anchor.y - 2 ||
-      newPosition.y > anchor.y + 4,
-  );
-};
-
 /** A scan proposes at most one flat waypoint. A later waypoint requires a new
  * scan from the actual landing. Planner cells never supply a block state ID.
  */
@@ -210,34 +163,6 @@ function nextCertifiedProbeWaypoint(
   return best;
 }
 
-/** Two complete scans from the same still pose may expose complementary
- * visible cells. A disagreement stays unknown; this grants no hidden reads. */
-function consistentVisibleCells(
-  first: readonly KnownCell[],
-  second: readonly KnownCell[],
-): KnownCell[] | null {
-  if (first.length !== 245 || second.length !== 245) return null;
-  const secondByKey = new Map(second.map((c) => [key(c), c]));
-  if (secondByKey.size !== 245) return null;
-  const merged: KnownCell[] = [];
-  for (const a of first) {
-    const b = secondByKey.get(key(a));
-    if (!b) return null;
-    merged.push({
-      x: a.x,
-      y: a.y,
-      z: a.z,
-      terrain:
-        a.terrain === "unknown"
-          ? b.terrain
-          : b.terrain === "unknown" || b.terrain === a.terrain
-            ? a.terrain
-            : "unknown",
-    });
-  }
-  return merged;
-}
-
 /** A successful walk may still coast below the walk primitive's speed limit.
  * Wait for the scanner's exact unchanged-pose evidence before starting the
  * next camera batch; an aborted or unsteady arrival cannot grant authority.
@@ -270,8 +195,13 @@ export async function collectObservedDirt(
   target: Target,
   signal?: AbortSignal,
 ): Promise<ObservedCollectionResult> {
-  const initial = context.readSession();
+  // The caller may retain and mutate both objects while this operation awaits.
+  target = { ...target };
+  const initial = { ...context.readSession() };
   const bot: Bot = initial.bot;
+  const events = bot as EventEmitter;
+  const initialEntity = bot.entity;
+  const initialDimension = bot.game.dimension;
   let steps = 0;
   let timedOut = false;
   let invalidated = false;
@@ -305,6 +235,7 @@ export async function collectObservedDirt(
     controller.abort();
   }, 20000);
   let monitoring = true;
+  let collecting = false;
   const invalidate = (event: InvalidationEvent) => {
     if (monitoring) {
       invalidated = true;
@@ -317,20 +248,85 @@ export async function collectObservedDirt(
   if (signal?.aborted) cancel();
   // These are delivered client events, not a proof of atomic server history.
   const watchers = invalidationEvents.map((event) => {
-    const listener = (...args: unknown[]) => {
-      if (
-        event !== "blockUpdate" ||
-        !outsideRouteRegion(args[0], args[1], routeAnchors)
-      )
-        invalidate(event);
+    const listener = () => {
+      // Once collection starts there is no retained route authority. Its own
+      // guarded dig handles the expected target removal; lifecycle stays live.
+      if (collecting && event === "blockUpdate") return;
+      // No authenticated visibility-dependency set accompanies ScanResult.
+      // Follow whole-batch refusal; coordinates cannot certify irrelevance.
+      invalidate(event);
     };
     bot.on(event, listener);
     return { event, listener };
   });
+  const checkSession = () => {
+    try {
+      if (
+        watchers.some(
+          ({ event, listener }) => !events.listeners(event).includes(listener),
+        ) ||
+        !events.listeners("physicsTick").includes(checkSession) ||
+        !events.listeners("game").includes(checkSession) ||
+        !events.listeners("removeListener").includes(removed)
+      )
+        invalidate("monitoring_interrupted");
+      const current = context.readSession();
+      if (
+        !current.active ||
+        current.bot !== bot ||
+        current.sessionId !== initial.sessionId ||
+        bot.entity !== initialEntity ||
+        bot.game.dimension !== initialDimension
+      )
+        invalidate("session_changed");
+    } catch {
+      invalidate("session_changed");
+    }
+  };
+  const removed = (
+    event: string | symbol,
+    listener: (...args: unknown[]) => void,
+  ) => {
+    if (
+      monitoring &&
+      (watchers.some((w) => w.event === event && w.listener === listener) ||
+        listener === checkSession ||
+        listener === removed)
+    )
+      invalidate("monitoring_interrupted");
+  };
+  bot.on("physicsTick", checkSession);
+  bot.on("game", checkSession);
+  events.on("removeListener", removed);
+  // Only this direct call can feed snapshots to this operation. No injected
+  // scanner/provider or externally supplied ScanResult is accepted here.
+  const acquireScan = async (): Promise<ScanResult> => {
+    checkSession();
+    const state = stationaryState(bot);
+    if (!state || controller.signal.aborted)
+      return { ok: false, code: "invalid_handoff" };
+    const startedAtMs = Math.floor(performance.now());
+    const result = await scanNearbyTerrain(context, runner, {
+      signal: controller.signal,
+    });
+    checkSession();
+    if (!result.ok) return result;
+    if (controller.signal.aborted)
+      return { ok: false, code: "invalid_handoff" };
+    const snapshot = copyCompletedScan(result, {
+      sessionId: initial.sessionId,
+      dimension: initialDimension,
+      pose: state.pose,
+      startedAtMs,
+      receivedAtMs: Math.floor(performance.now()),
+    });
+    return snapshot ?? { ok: false, code: "invalid_scan_snapshot" };
+  };
   try {
     const deadline = performance.now() + 20000;
     const consumedScans = new Set<string>();
     for (let attempt = 0; attempt <= 3; attempt++) {
+      checkSession();
       if (controller.signal.aborted)
         return fail(invalidated ? "world_or_session_changed" : "cancelled");
       if (performance.now() >= deadline)
@@ -350,14 +346,15 @@ export async function collectObservedDirt(
         // The collection action re-looks, re-inspects and verifies the target
         // state, server-confirmed dig and subsequent inventory delta.
         clearTimeout(timer);
-        monitoring = false;
+        collecting = true;
         const collected = await collectNearbyDirt(
           bot,
           runner,
           target,
           controller.signal,
         );
-        if (invalidated) return fail("world_or_session_changed");
+        checkSession();
+        if (invalidated) return fail("world_or_session_changed", collected);
         if (
           collected.code === "inventory_increase_observed" ||
           collected.code === "not_observed"
@@ -429,9 +426,7 @@ export async function collectObservedDirt(
         )
           return fail("pose_changed_after_target_look");
       }
-      let scan: ScanResult = await scanNearbyTerrain(context, runner, {
-        signal: controller.signal,
-      });
+      let scan: ScanResult = await acquireScan();
       if (!scan.ok) return fail(`scan_${scan.code}`);
       if (!scan.complete || consumedScans.has(scan.scanId))
         return fail("invalid_or_reused_scan");
@@ -453,12 +448,11 @@ export async function collectObservedDirt(
         scan.observation.views.length !== 3
       )
         return fail("scan_handoff_changed");
-      let copied = scan.observation.cells.map((c) => ({
-        x: c.x,
-        y: c.y,
-        z: c.z,
-        terrain: c.terrain,
-      }));
+      const batch = visibleCellBatch();
+      let copied = batch.add(
+        scan.observation.cells,
+        scan.observation.evidence,
+      )!;
       const targetSeen = (result: Extract<ScanResult, { ok: true }>) => {
         const evidence = result.observation.evidence.find(
           (e) => e.x === target.x && e.y === target.y && e.z === target.z,
@@ -528,9 +522,7 @@ export async function collectObservedDirt(
         const laneState = stationaryState(bot);
         if (!laneState || !same(laneState.pose.position, scan.pose.position))
           return fail("pose_changed_after_lane_look");
-        const laneScan = await scanNearbyTerrain(context, runner, {
-          signal: controller.signal,
-        });
+        const laneScan = await acquireScan();
         if (!laneScan.ok) return fail(`lane_scan_${laneScan.code}`);
         if (!laneScan.complete || consumedScans.has(laneScan.scanId))
           return fail("invalid_or_reused_lane_scan");
@@ -564,9 +556,9 @@ export async function collectObservedDirt(
           )
         )
           return fail("target_observation_conflict");
-        const combined = consistentVisibleCells(
-          copied,
+        const combined = batch.add(
           laneScan.observation.cells,
+          laneScan.observation.evidence,
         );
         if (!combined) return fail("inconsistent_scan_cells");
         copied = combined;
@@ -600,9 +592,7 @@ export async function collectObservedDirt(
         const floorState = stationaryState(bot);
         if (!floorState || !same(floorState.pose.position, scan.pose.position))
           return fail("pose_changed_after_floor_look");
-        const floorScan = await scanNearbyTerrain(context, runner, {
-          signal: controller.signal,
-        });
+        const floorScan = await acquireScan();
         if (!floorScan.ok) return fail(`floor_scan_${floorScan.code}`);
         if (!floorScan.complete || consumedScans.has(floorScan.scanId))
           return fail("invalid_or_reused_floor_scan");
@@ -636,9 +626,9 @@ export async function collectObservedDirt(
           )
         )
           return fail("target_observation_conflict");
-        const combined = consistentVisibleCells(
-          copied,
+        const combined = batch.add(
           floorScan.observation.cells,
+          floorScan.observation.evidence,
         );
         if (!combined) return fail("inconsistent_scan_cells");
         copied = combined;
@@ -655,6 +645,7 @@ export async function collectObservedDirt(
         return fail("target_not_observed_as_support");
       // Let queued client updates run before consuming the one-shot proposal.
       await new Promise<void>((resolve) => setImmediate(resolve));
+      checkSession();
       if (controller.signal.aborted)
         return fail(invalidated ? "world_or_session_changed" : "cancelled");
       const beforeLook = stationaryState(bot);
@@ -731,8 +722,12 @@ export async function collectObservedDirt(
     }
     return fail("waypoint_limit");
   } finally {
+    monitoring = false;
     clearTimeout(timer);
     signal?.removeEventListener("abort", cancel);
+    events.off("removeListener", removed);
+    bot.off("physicsTick", checkSession);
+    bot.off("game", checkSession);
     for (const { event, listener } of watchers) bot.off(event, listener);
   }
 }

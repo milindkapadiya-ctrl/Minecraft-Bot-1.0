@@ -49,6 +49,7 @@ class CourseBot extends EventEmitter {
   digs = 0;
   interruptWalk = false;
   walkUpdatePosition: { x: number; y: number; z: number } | undefined;
+  onDig: (() => void) | undefined;
   private interrupted = false;
   constructor(
     readonly target = { x: 2, z: 0 },
@@ -118,6 +119,7 @@ class CourseBot extends EventEmitter {
   }
   async dig(block: { position: { x: number; y: number; z: number } }) {
     this.digs++;
+    this.onDig?.();
     assert.deepEqual(
       { x: block.position.x, y: block.position.y, z: block.position.z },
       { x: this.target.x, y: 63, z: this.target.z },
@@ -161,6 +163,11 @@ async function course(
   interruptWalk = false,
   walkUpdatePosition?: { x: number; y: number; z: number },
   pit?: { x: number; z: number },
+  setup?: (
+    raw: CourseBot,
+    session: { bot: Bot; sessionId: string; active: boolean },
+    target: { x: number; y: number; z: number; stateId: number },
+  ) => void,
 ) {
   const raw = new CourseBot(target, pit);
   raw.interruptWalk = interruptWalk;
@@ -173,18 +180,16 @@ async function course(
   const baselineListeners = Object.fromEntries(
     invalidationEvents.map((event) => [event, raw.listenerCount(event)]),
   );
+  const session = { bot, sessionId: "course", active: true };
   const context: ScanContext = {
-    readSession: () => ({ bot, sessionId: "course", active: true }),
+    readSession: () => session,
     readAir: () => ({ status: "valid", raw: 300, oxygen: 20 }),
   };
+  const requestedTarget = { x: target.x, y: 63, z: target.z, stateId: 9 };
+  setup?.(raw, session, requestedTarget);
   const ticks = setInterval(() => raw.tick(), 50);
   try {
-    const result = await collectObservedDirt(context, runner, {
-      x: target.x,
-      y: 63,
-      z: target.z,
-      stateId: 9,
-    });
+    const result = await collectObservedDirt(context, runner, requestedTarget);
     return { raw, result, events, baselineListeners };
   } finally {
     clearInterval(ticks);
@@ -212,20 +217,101 @@ test("real body sequence adapts to two flat course directions and verifies picku
 });
 
 test("bounded local probes can reobserve around a visible one-cell pit", async () => {
-  const { raw, result } = await course({ x: 2, z: 0 }, false, undefined, {
-    x: 1,
-    z: 0,
-  });
+  for (const [target, pit] of [
+    [
+      { x: 2, z: 0 },
+      { x: 1, z: 0 },
+    ],
+    [
+      { x: 0, z: 2 },
+      { x: 0, z: 1 },
+    ],
+  ] as const) {
+    const { raw, result } = await course(target, false, undefined, pit);
+    assert.equal(
+      result.code,
+      "inventory_increase_observed",
+      JSON.stringify(result),
+    );
+    if (result.code !== "inventory_increase_observed") assert.fail();
+    assert.equal(result.steps, 3);
+    assert.equal(result.collection.evidence.delta, 1);
+    assert.equal(raw.digs, 1);
+    assert.equal(raw.controlState.forward, false);
+  }
+});
+
+test("caller mutation cannot redirect an accepted collection target", async () => {
+  const { raw, result } = await course(
+    { x: 2, z: 0 },
+    false,
+    undefined,
+    undefined,
+    (raw, _session, target) => {
+      raw.once("physicsTick", () => {
+        target.x = 100;
+        target.stateId = 0;
+      });
+    },
+  );
   assert.equal(
     result.code,
     "inventory_increase_observed",
     JSON.stringify(result),
   );
-  if (result.code !== "inventory_increase_observed") assert.fail();
-  assert.equal(result.steps, 3);
-  assert.equal(result.collection.evidence.delta, 1);
   assert.equal(raw.digs, 1);
+});
+
+test("loss of a route monitoring listener refuses the batch before movement", async () => {
+  const { raw, result } = await course(
+    { x: 2, z: 0 },
+    false,
+    undefined,
+    undefined,
+    (raw) => {
+      raw.once("physicsTick", () => raw.removeAllListeners("blockUpdate"));
+    },
+  );
+  assert.equal(result.code, "refused");
+  if (result.code !== "refused") assert.fail();
+  assert.equal(result.invalidationEvent, "monitoring_interrupted");
+  assert.equal(raw.digs, 0);
   assert.equal(raw.controlState.forward, false);
+});
+
+test("session and dimension changes during collection cannot publish inventory success", async (t) => {
+  for (const fault of [
+    "session",
+    "dimension",
+    "entity",
+    "inactive",
+    "chunk",
+  ] as const)
+    await t.test(fault, async () => {
+      const { raw, result } = await course(
+        { x: 1, z: 0 },
+        false,
+        undefined,
+        undefined,
+        (raw, session) => {
+          raw.onDig = () => {
+            if (fault === "session") session.sessionId = "replaced";
+            if (fault === "inactive") session.active = false;
+            if (fault === "dimension") raw.game.dimension = "the_nether";
+            if (fault === "entity") raw.entity = { ...raw.entity };
+            raw.emit(fault === "chunk" ? "chunkColumnUnload" : "game");
+          };
+        },
+      );
+      assert.equal(result.code, "refused", JSON.stringify(result));
+      if (result.code !== "refused") assert.fail();
+      assert.equal(result.reason, "world_or_session_changed");
+      assert.ok(
+        result.collection,
+        "retain collection diagnostics after invalidation",
+      );
+      assert.equal(raw.controlState.forward, false);
+    });
 });
 
 test("delivered world change during routed walk cancels before digging", async () => {
@@ -258,15 +344,17 @@ test("a changed block in the observed route region still cancels before digging"
   assert.equal(raw.digs, 0);
 });
 
-test("an unrelated distant block change does not revoke the local route", async () => {
+test("a distant delivered update also revokes the batch without a trusted visibility scope", async () => {
   const { raw, result, baselineListeners } = await course(
     { x: 2, z: 0 },
     true,
     { x: 100, y: 63, z: 100 },
   );
-  assert.equal(result.code, "inventory_increase_observed");
-  assert.equal(result.steps, 1);
-  assert.equal(raw.digs, 1);
+  assert.equal(result.code, "refused");
+  if (result.code !== "refused") assert.fail();
+  assert.equal(result.invalidationEvent, "blockUpdate");
+  assert.equal(result.steps, 0);
+  assert.equal(raw.digs, 0);
   assert.equal(raw.controlState.forward, false);
   for (const event of invalidationEvents)
     assert.equal(raw.listenerCount(event), baselineListeners[event], event);
