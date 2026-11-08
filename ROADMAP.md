@@ -1,6 +1,8 @@
 # Roadmap
 
-**MCBOT-DEMO-02 — offline preparation only:** separate north/west campaign harness and exclusive ledger prepared on `codex/mcbot-demo-02`. No live authorization, attempts or video; human recording preflight remains pending. See [handoff](docs/workstreams/mcbot-demo-02.md).
+**2026-11-08 unattended preflight:** two pit attempts authorized and preserved; recorder overlays could not be safely targeted, no saved/decoded video or gameplay view verified. Fresh offline gate702/702, focused37/37. Next: validate desktop-only capture and unattended observer before consuming either attempt. [Evidence](docs/workstreams/mcbot-demo-02.md).
+
+**MCBOT-DEMO-02 — offline preparation only:** separate north/west campaign harness and exclusive ledger prepared on `codex/mcbot-demo-02`. Historical preparation had no attempts or video; the current authorization and unattended preflight outcome are recorded above. See [handoff](docs/workstreams/mcbot-demo-02.md).
 
 **2026-11-08 MCBOT-RELIABILITY-01 — offline hardening:** scanner scheduling stress and finite refusal diagnostics; fixed30s, separately observable shutdown with immutable timeout outcomes; bounded asynchronous logs; recording metadata, captions and existing Windows recorder procedure. Fresh full gate **699/699**, dedicated suite127/127, no failures/skips; typecheck/build/format/diff pass. North trigger and west save-delay cause remain uncertain. No live attempts, recording or world changes. Remaining manual gate: **two separately authorized recorded pit attempts**, north and west, including full cleanup and human video review. [Fresh checks and publication](docs/workstreams/mcbot-reliability-01.md); [exact future protocol](docs/reliability-diagnostics.md).
 

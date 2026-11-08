@@ -1,5 +1,31 @@
 # MCBOT-DEMO-02 — offline campaign preparation
 
+## Current: authorized unattended preflight — 2026-11-08
+
+Starting HEAD verified clean at `0ce40c559c688842438899affc15265681b23749`. The latest user instruction explicitly authorizes the existing two attempts without human participation, conditional on independently verified unattended recording and safety. This supersedes the missing-authorization language in the historical preparation report below. No additional authorization was requested.
+
+**Outcome: zero attempts executed, zero technical passes; north and west both unattempted.** No fresh route, scan, dig, inventory or server shutdown result exists for either scenario. Human visual acceptance remains pending. The existing campaign and both run IDs are preserved; only its truthful `liveAuthorized` field was changed to true. All human/recording/client readiness flags remain false. No world root or attempt marker was created.
+
+### Actual feasibility evidence
+
+- Desktop app enumeration worked. Installed Snipping Tool11.2608.41.0 opened, exposed video mode, and accepted selection of that mode. Calculator was opened as harmless capture content. New recording then returned `foreground window did not report a process id` and lost its targetable window. Recovery found the Snipping Tool main window, but an input check reported `Snipping Tool Overlay` over the target; that overlay was absent from returned targetable windows. Selection was cancelled without pressing a recording Start control.
+- Clipchamp4.7.10220.0 was launched from its existing package executable. It remained at “Setting up your workspace” during the bounded check, with no capture controls verified. Game Bar7.326.10141.0 launch returned “launched app did not expose a targetable window.” A Game Bar overlay subsequently appeared in a capture associated with another window, so it could not safely be controlled as that target. No guessed window handles, global input workaround, invented recording API, installation or login was used.
+- The screenshot/window association was intermittently inconsistent; explicit activation corrected the initial Snipping screenshot, but later activation failed. This is a concrete automation limitation in this session, not proof that these Windows tools can never record unattended.
+- Calculator and the first Snipping window closed normally. A later Snipping window and Clipchamp/Game Bar UI remained exposed; cleanup attempts failed with `failed to activate captured window` after refreshed binding. Recorder UI cleanup is not claimed complete. No recorder process was force-killed and no recording-start control was pressed. No saved video, hash, decoded frame, playback or meaningful gameplay view was verified.
+- Minecraft packages are installed, but no running Minecraft graphical client or unobstructed bot view was established. Once recording preflight failed, no Minecraft launch, connection or world creation was attempted. Installed software alone is not readiness evidence.
+
+### Safe supervision decision
+
+The existing interactive harness was reviewed but not converted to unattended execution: there is no verified recorder lifecycle or gameplay observer to bind to automated prerequisites. Hardcoding its confirmations or setting human flags true would fabricate readiness. Its current gates still refuse this plan before server setup. No production/controller/scanner/interaction behavior or deadline changed. The user-authorized fallback is therefore used: preserve both attempts and finish independent offline verification.
+
+Fresh runtime read-only checks confirmed Microsoft Java25+36-LTS and the exact pinned server SHA-256 shown below. Java ran only `-version`. No Java/Minecraft process or listener on25582/25583 was found; the existing campaign root remains absent, with370,926,059,520 bytes free. All15 selected historical evidence hashes are unchanged. The ignored `output/demo-02/unattended-preflight.json` records the outcome without raw desktop contents.
+
+Fresh commands: `pnpm check` passed **702/702**, zero failures/cancellations/skips, including typecheck/build/formatting (tests65.527s). `node --test dist/test/demo-campaign.test.js dist/test/server-lifecycle.test.js dist/test/recording-evidence.test.js` passed **37/37**, zero failures/skips. Logs: `output/demo-02-unattended-check.log` and `output/demo-02-unattended-focused.log`. These are fresh offline results, not video or Minecraft evidence.
+
+**Remaining blockers:** verified automatic capture start/stop/save with decoded meaningful frames; a genuine unattended Survival observer view; an automated supervisory integration backed by those real prerequisites. Next recommended substantial cycle: repair/validate existing-recorder desktop capture and a non-interfering observer using a desktop-only test first, then bind verifiable lifecycle evidence into the harness. Preserve these same two authorized attempts; do not request the already-authorized scope again or start AI work.
+
+## Historical offline preparation
+
 Base verified clean: `1e91d50db281de3a020e1e0780f1058ec03af07e`, branch `codex/mcbot-reliability-01`. Work branch: `codex/mcbot-demo-02`. The assignment explicitly withholds live authorization pending a separate user approval and human recording readiness.
 
 ## Outcome
@@ -41,3 +67,7 @@ Fresh final validation: `pnpm check` passed **702/702 tests**,0 failed/cancelled
 Prepared campaign ID: `4b391c62-002b-490f-b3be-560f86088a61`. North run: `7358352d-b763-4d01-a30d-229a3f845639`; west run: `41161709-7173-4c5e-af4d-24c9e387eb64`. Matching metadata-only recording plans/cue cards exist under ignored `output/reliability-01-recording/<run-id>`, compatible with the existing marker/attachment helpers. No started/stopped/video attachment was fabricated. Native recorder use, client display, video playback and human review remain unverified. Process/root/port checks must be repeated at execution time; operator review must block west if north reveals a systemic defect.
 
 Published implementation: `19edd8a1d156c80c58ae8f66835eeeab975d4ecc` on `origin/codex/mcbot-demo-02`. The single draft-PR request against `codex/mcbot-reliability-01` returned403, “Resource not accessible by integration.” No PR was created, no credential request or retry was made. The comparison and prepared PR description above remain available. A documentation-only follow-up records this publication outcome.
+
+## Unattended follow-up publication
+
+This follow-up changes documentation only; the local existing plan records actual authorization without changing run IDs or inventing readiness. Publish on `codex/mcbot-demo-02`, base `codex/mcbot-reliability-01`. The prior draft-PR creation returned403, Resource not accessible by integration; no PR exists and that denied creation is not retried here. Prepared current title: “Prepare DEMO-02 campaign and preserve attempts after unattended capture refusal.” Prepared body: The separate two-scenario campaign retains reviewed gameplay and shutdown safety. A real desktop-only feasibility investigation could not verify recorder capture/stop/save or meaningful decoded frames; both newly authorized attempts remain unconsumed. No production behavior changed in this follow-up. Fresh full gate702/702 and focused37/37 pass; no live/video acceptance is claimed. See this report for concrete automation errors, incomplete recorder UI cleanup and the next capture/observer prerequisite.

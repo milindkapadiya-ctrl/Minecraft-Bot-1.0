@@ -60,3 +60,5 @@ Acceptance requires fresh north and west technical evidence, a playable reviewed
 ## DEMO-02 preparation
 
 The separate `scripts/demo-02-live.mjs` consumes the prepared DEMO-02 plan, not DEMO-01 scenario markers. See [DEMO-02 handoff](workstreams/mcbot-demo-02.md). Both live authorization and human recording preflight remain pending; no video exists.
+
+DEMO-02 now has explicit two-attempt unattended authorization. The current desktop capture feasibility check failed; see the current workstream report. Do not interpret authorization as capture readiness or fabricate the existing human confirmation fields. Neither live attempt has been consumed.
