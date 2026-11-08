@@ -1,0 +1,100 @@
+# MCBOT-DEMO-01 — bounded live acceptance
+
+The user explicitly authorizes exactly three supervised integrated attempts in three new disposable Peaceful Survival worlds: flat, north-facing one-cell pit, west-facing one-cell pit. Failure counts; no automatic live retry. Existing worlds, main, privileges, safety contracts and dependencies remain protected. One unified lead performs this cycle.
+
+## Verified starting state and preflight
+
+Clean starting branch `codex/mcbot-integration-02`, HEAD `6a6d2961eb7eea22cf6bf93685981f46bc8c7252`; implementation `69e8c21d68be687a46891340d937cad270bb1996`, documentation `c4e7d8a71b0fbb284b0fea6c006e6ec55bdbbed2` verified as ancestors. Remote: `https://github.com/milindkapadiya-ctrl/Minecraft-Bot-1.0.git`. Dedicated development branch: `codex/mcbot-demo-01`.
+
+Initial actual `pnpm check`:640 passed,0 failed/cancelled/skipped; typecheck/build/format passed, test duration42967.2564ms. Inspected scripts before running; no server/start/demo command was included in this offline gate. Node24.22.0 ARM64, pnpm11.25.0, unchanged pinned Mineflayer4.39.0. The fake lease tests use the normal user cache.
+
+Independent targeted code review covered `ActionRunner` operation and child ownership, control scopes, cancellation/cleanup closure and stale handles; `ObservationBatch` exact-pose/camera, direct scanner association, protected snapshots, sticky conflicts, continuous delivered-event monitoring and one consumption; bounded pure candidate selection; `VisibleWalkPort`/`walk-to` fresh support/clearance/braking; settled arrival; and `collect-nearby` fresh target/dig confirmation/inventory checks. No safety-critical defect requiring redesign was identified in that review. Existing limitations remain: cooperative compiled execution, delivered client observations and timers that cannot preempt blocked JavaScript.
+
+Added bounded historical `navigation` result diagnostics (scan/decision/evaluation counts, proposed waypoint, handoff and stable arrival) after operation completion. They carry no cells, token, callback or movement authority and do not drive decisions. Added offline north/west pit coverage; the helper's initial camera now faces negative-axis targets correctly. Existing east/south geometry and assertions are unchanged. Focused command `pnpm build` then `node --test dist/test/observed-collection-integration.test.js`:21 passed,0 failed/skipped, including both documented orientations and bounded decision/arrival evidence.
+
+## Environment isolation
+
+Historical October31 fixtures were one cell north/west of the player's starting feet, with the grass target one more cell beyond the pit, built by a separate guarded Survival dig session. Their macOS temporary paths do not exist on this Windows host. East/south offline fixtures are distinct evidence.
+
+Verified reusable server jar: `C:\Users\ejdth\OneDrive - Yale University\ChatGPT Beats Minecraft\server-26.1\server.jar`, SHA256 `98ab064389a8b34d48ac3d4c5ed858dd9433d0dfd1a12e1cbbda916448d92994`. Its bundled `META-INF/versions.list` identifies26.1. Existing adjacent `eula.txt` records `eula=true`; only this existing acceptance and the jar are copied, never old world/configuration data.
+
+Verified Java: `C:\Users\ejdth\AppData\Local\Packages\Microsoft.4297127D64EC6_8wekyb3d8bbwe\LocalCache\Local\runtime\java-runtime-epsilon\windows-arm64\java-runtime-epsilon\bin\java.exe`, Microsoft OpenJDK25+36-LTS. No runtime or dependency installation. Process inspection found no Java/Minecraft/OBS/FFmpeg process; ports25571–25573 were free. No active visual observer or recorder was available; recording and human visual acceptance remain separate pending checks.
+
+New disposable root: `C:\Users\ejdth\OneDrive\Documents\ChatGPT\Minecraft Bot\integration\output\demo-01-live`. It did not exist at preflight. Scenario directories are `flat-north`, `pit-north`, `pit-west`; each uses its own new `world` and loopback port25571,25572,25573 respectively. Survival/Peaceful, no ops, command blocks/RCON/query disabled, no seed, no structures, flat grass/dirt/bedrock generation. No gameplay console commands; shutdown uses only administrative `stop`. Preparation and acceptance use production sessions/controllers and separate connections with the same saved player identity.
+
+Existing personal saves under `%APPDATA%\.minecraft\saves`, old Yale OneDrive project/backup server worlds, local Perception test worlds and the existing Codex project server are outside the disposable root. Only directory/file metadata was recorded for preservation checks; no world contents were inspected for gameplay. Preflight metadata is in ignored `output/demo-01-existing-metadata-before.json`.
+
+`scripts/demo-01-live.mjs` fixes the three scenario names, requires the verified jar hash and existing EULA acceptance, refuses any preexisting scenario directory, probes its loopback port and creates an exclusive attempt marker before its single integrated call. Initial stabilization is passive and bounded. Fixture geometry only selects a grass index from genuine fresh `inspect`; the production scanner alone supplies planning cells. No raw movement/position/velocity assignment, hidden terrain injection, autonomous selection or retries. Each result preserves independent post-operation inventory, stopped controls, server exit, and session cleanup.
+
+## Live results and final checkpoint
+
+Pre-live implementation/harness commit: `4663bb48190681982fa29ef293264b85e87c432b`. Before the first live attempt, `pnpm check` passed641/641 tests,0 failures/skips, typecheck/build/format; test duration67705.2857ms. `node --check scripts/demo-01-live.mjs` and `git diff --check` passed.
+
+### Scenario1 — flat north
+
+One uninterrupted integrated call passed on commit4663bb4. New world `output/demo-01-live/flat-north/world`, port25571, identity `Demo01_1`, acceptance session `07c74f74-f787-4b7b-915f-6576376186a2`. Stable start(-9.5,-60,9.5), freshly inspected grass target(-10,-61,7), waypoint feet(-10,-60,8). One genuine completed scanner result, one consumed decision with4 planner evaluations, queued-event handoff and stable arrival verified. Guarded target dig returned `ok` with `serverConfirmedAir:true`; dirt0→1, independent post-operation inventory1. No invalidation, controls all false, session exit0, server exit0. Loopback port and owned Java PID21052 were released. No recording/human visual acceptance.
+
+### Scenario2 — north pit
+
+One integrated call **refused** on commit4663bb4; no retry. New world `output/demo-01-live/pit-north/world`, port25572, identity `Demo01_2`. Preparation session `072ed8c6-4935-4603-be09-803fe959caf3` legitimately dug pit(-8,-61,6) from stable(-7.5,-60,7.5), server-confirmed air, then disconnected. Acceptance session `a883c732-efbd-43ac-ab52-60aa12af5427` rejoined the exact same start and selected visible grass(-8,-61,5).
+
+First batch:1 scan,1 consumed decision,7 planner evaluations, proposed feet(-7,-60,7); the east side step and exact settled arrival completed. The next scanner stopped after311ms/7 physics ticks with `scan_invalid_context`; second batch had0 completed scans/0 decisions. No target dig or further movement. Dirt initial0, collection-final0 (no collection-stage outcome), separate retained inventory0; the preparation drop did not enter this measured inventory. Controls stopped, scanner cleanup complete, both sessions exit0, server exit0, process and port released. No recording/human visual acceptance. This safe refusal counts as the north scenario failure, not a completed course.
+
+### Narrow repair after scenario2
+
+`captureView`'s `invalid_context` can mean stale/revoked readiness or an invalid session/state; the live log alone does not distinguish those predicates. Installed Mineflayer4.39.0 `physics.js` can emit multiple catch-up ticks in a synchronous loop. The old scanner resolved a stationary receipt and awaited a promise continuation before claiming it. A later tick in that loop revokes the receipt generation before the continuation can capture. A permanent real-scanner offline regression reproduces precisely `invalid_context`: `pnpm build` then `node --test --test-name-pattern='synchronous catch-up physics' dist/test/scan-nearby-terrain.test.js` yielded0 pass/1 fail before repair. This is a demonstrated scheduling defect consistent with the live failure, not proof of its exact live trigger.
+
+The scanner now performs its one synchronous guarded capture inside the readiness event, keeping the collector alive through capture and disposing it immediately afterward. No stale receipt is accepted, no capture retry added, no100ms lifetime extended, no pose tolerance changed. Captures still use the genuine observer, authenticated single-use receipt and exact rechecks. Whole-scan monitoring remains active through later ticks and strict restoration. New regressions prove delivered post-capture position/camera changes (even restored endpoints) and cancellation still reject the whole scan.
+
+Focused repair gate: `pnpm build` then `node --test dist/test/scan-nearby-terrain.test.js dist/test/capture-view.test.js dist/test/perception-camera-compatibility.test.js dist/test/perception-controller-cleanup.test.js`:74 passed,0 failed/skipped. An earlier run had68 pass/2 fail due to a transient Windows `EBUSY` opening an installed minecraft-data JSON file and its dependent measurement-count assertion; no assertions were changed, and the rerun passed all74. This was a local file-lock interruption, distinct from the scanner defect. No unresolved unsafe execution was found; the remaining independently isolated scenario may proceed only after the full repair gate passes. The failed north attempt remains preserved and will not be rerun.
+
+Repair implementation: `5834304debe89d8e23831d3575934a45aa83f328`. Before scenario3, actual `pnpm check` passed646/646 tests,0 failed/cancelled/skipped, typecheck/build/format; duration65955.4302ms. `git diff --check` passed. This is the code used by the west attempt, distinct from scenarios1–2.
+
+### Scenario3 — west pit
+
+The integrated gameplay call succeeded on5834304, but the recorded scenario outcome is **cleanup_failed** because server shutdown exceeded the harness's30s grace. It is not counted as an unqualified acceptance pass. No retry. New world `output/demo-01-live/pit-west/world`, port25573, identity `Demo01_3`, acceptance session `c38bdf55-90c3-4725-bb20-4203343fe08c`. A separate preparation session legitimately dug pit(-8,-61,-2) from stable(-6.5,-60,-1.5), received server-confirmed air and disconnected. The acceptance session rejoined that exact start and selected visible grass(-9,-61,-2).
+
+Three uninterrupted guarded waypoints completed at feet(-7,-60,-1),(-8,-60,-1),(-9,-60,-1), taking the south side of the west-facing pit. Fresh batches completed1,2,2 scans respectively; each consumed exactly one decision with7,5,4 internal evaluations. Each retained-owner handoff and stable arrival verified. Target dig returned `ok`/server-confirmed air and guarded descent returned `ok`. Dirt initial0, collection-final2, independent retained2. Both the earlier pit drop and target drop can contribute; this does not establish item-level provenance. All physical action cleanups were `complete`, controls were all false, and both bot sessions exited0.
+
+Owned Java PID16812 closed the port and began graceful world save at23:51:01 Eastern (04:51:01UTC). The harness recorded `stop_timeout`/`cleanup_failed` at30s. The server then reported **all dimensions saved at04:51:40UTC** and exited without a force-kill. Final process/port inspection at04:52:18.607UTC found no Java/Minecraft processes and no listeners on25571–25573. The original harness exited1 for its preserved timeout. Its pre-repair late-close handler did not persist the Java exit code after timeout, so that exact server code is unknown; it is not invented as0. A final telemetry-only fix now writes `server-exit.json` and a `server_exit` event on every close, including late close, without rewriting the earlier timeout as success. That instrumentation was not rerun live.
+
+The39s save delay is a demonstrated environment/shutdown reliability issue. A separate transient dependency-file `EBUSY` occurred during offline tests in this OneDrive checkout, but it does not prove the cause of the server save delay. No storage setting or timeout was changed to turn the result into a pass.
+
+## Outcome, preservation and evidence
+
+**Three integrated calls total; no retries. One unqualified scenario pass out of three.** Two calls completed uninterrupted collection gameplay with retained inventory increases; north refused after one step, and west completed gameplay but missed bounded server cleanup. Full live acceptance and faculty-advisor demonstration readiness are **not achieved**. No recording exists and no human visual acceptance occurred.
+
+| Scenario                   | Integrated time   | Waypoints | Target dig              | Dirt initial / collection-final / independent retained | Result                                                                    |
+| -------------------------- | ----------------- | --------- | ----------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------- |
+| Flat north                 | 4324ms            | 1         | Confirmed               | 0 /1 /1                                                | Pass; bot/server exit0                                                    |
+| North pit                  | 2334ms to refusal | 1         | Not attempted           | 0 /0 /0                                                | `scan_invalid_context`; clean stop                                        |
+| West pit, repaired scanner | 11967ms           | 3         | Confirmed; descent `ok` | 0 /2 /2                                                | Gameplay success; server `stop_timeout`, eventual completed save and exit |
+
+All controller action cleanup records in all scenarios say `complete`; all five bot sessions (two fixture preparations and three acceptance sessions) exited0. Scenarios1–2 servers exited0. Scenario3's original timeout result is retained alongside later save/process evidence. No process was force-killed, no world deleted, no extra connection/collection experiment issued, and no existing server launched. Recorded existing-world directory/file timestamps and lengths matched the preflight metadata afterward. This administrative metadata comparison and the confined new-server working directories support preservation; no claim of a complete content hash audit is made.
+
+Ignored local evidence is retained under `output/demo-01-live/{flat-north,pit-north,pit-west}/`: new world, server properties, server console, complete sanitized action/session telemetry, exclusive attempt marker and original `result.json`. Supporting evidence: `output/demo-01-summary.json`, `demo-01-live-port-evidence.json`, before/after existing-world metadata, and `demo-01-final-cleanup-confirmed.json`. All worlds remain for the user's retain/delete decision. No logs, worlds, jars, runtimes, credentials or generated builds are committed.
+
+Evidence categories remain separate: new course/body orchestration tests are controlled fakes; installed Mineflayer physics/camera and cleanup compatibility suites passed offline; October31 macOS live results are historical; this cycle's three Windows Java26.1 server runs are new live telemetry evidence. None is a substitute for a real recording or human visual review. Targets were supervised selections from fresh inspect output; no autonomous target selector or Minecraft-completing AI is claimed.
+
+## Remaining blockers and next cycle
+
+Concrete gaps: north course has no successful post-repair live acceptance; the precise cause of its historical `invalid_context` is not proven beyond the matching reproduced scheduling defect; west missed the30s server-shutdown grace and the cause of that delay remains unconfirmed; recording and human visual review are missing. All existing authorization was consumed. No unresolved controller cleanup or active server remains. Whole-operation ownership, genuine scan custody, single-use decision bounds and fresh movement/dig guards stayed enforced.
+
+One recommended next milestone: **reliable, recorded live body acceptance under scheduling and storage delays**. Investigate the shutdown delay and stress receipt scheduling offline, then seek a separately authorized fresh north-course acceptance and advisor recording/visual review. Preserve refusal behavior and bounded cleanup; do not extend limits merely to pass. Autonomous task selection should follow demonstrated acceptance, not be started in this cycle.
+
+## Publication
+
+The final late-exit telemetry fix is `6e849417537467571f693318e5552e2517f960a2`. Final post-live `pnpm check` at that source state passed **646/646,0 failures/cancellations/skips**, typecheck/build/format, test duration62590.6942ms. `node --check scripts/demo-01-live.mjs` and `git diff --check` passed. The complete diff was reviewed for ownership bypasses, receipt lifetime/tolerance changes, privileged gameplay, hidden inputs, retry loops, unrelated changes and secrets; none was introduced. Production changes are confined to bounded historical collection evidence and scanner capture scheduling. Other changes are the explicit three-scenario harness, regressions/helper camera initialization and current handoff docs. No dependency or runtime version change.
+
+| Checkpoint                                        | Exact commit                               | Live use                |
+| ------------------------------------------------- | ------------------------------------------ | ----------------------- |
+| Integration-02 base                               | `6a6d2961eb7eea22cf6bf93685981f46bc8c7252` | Ancestor                |
+| Harness, diagnostics, north/west offline coverage | `4663bb48190681982fa29ef293264b85e87c432b` | Flat and north          |
+| Synchronous capture repair and regressions        | `5834304debe89d8e23831d3575934a45aa83f328` | West only               |
+| Always preserve late server-exit telemetry        | `6e849417537467571f693318e5552e2517f960a2` | Offline validation only |
+
+The development branch targets verified `codex/mcbot-integration-02`, preserving the existing integration-01 → PR#6 → PR#5 → main stack. Publication and final documentation-only checks are recorded below after completion. No main merge or force-push.
+
+Prepared draft PR title: `Record bounded live body acceptance and repair scanner catch-up scheduling`.
+
+Prepared body: Three new isolated localhost Minecraft26.1 Peaceful Survival scenarios used one integrated collection call each. Flat passed; north safely refused after one waypoint; west completed three waypoints, guarded dig/descent and retained dirt0→2 after the scanner repair, but exceeded the harness's30s server-stop grace. All servers eventually exited and worlds/logs are preserved. No full acceptance or video claim. Reproduce the scanner's stale receipt handoff under synchronous catch-up ticks and capture synchronously at readiness without relaxing receipt lifetime, pose checks or restoration. Add bounded navigation diagnostics, north/west offline course coverage and a one-attempt-per-scenario harness with late-exit evidence. Final offline results and exact checkpoints are in `docs/workstreams/mcbot-demo-01.md`. Base integration-02; draft review only; no main merge, dependencies, credentials or extra live retries.

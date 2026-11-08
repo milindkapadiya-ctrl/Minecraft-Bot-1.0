@@ -1,5 +1,9 @@
 # Milind — Interaction & Inventory
 
+## 2026-11-07 bounded integrated live acceptance
+
+MCBOT-DEMO-01 used exactly three new isolated Peaceful Survival worlds and one integrated call each. Flat passed with dirt0→1 retained1. North pit refused after one waypoint on `scan_invalid_context`; no target dig. A matching catch-up receipt scheduling defect was reproduced and repaired offline. West pit on the repair completed three fresh waypoints, confirmed dig/descent and dirt0→2 retained2, but server save exceeded the30s shutdown grace before completing normally. This is1/3 unqualified scenario passes, not full acceptance. All bot sessions exited0, servers are gone/ports free, existing worlds preserved, no retries or video. [Full new evidence and next milestone](mcbot-demo-01.md); older entries below remain historical.
+
 ## 2026-11-07 consolidated offline integration
 
 `codex/mcbot-integration-01`, implementation `791eacba47a676125b736dafc48861292b8de4be`, retains the PR #6 pit-detour body with immutable validated scan snapshots, sticky conflict handling, copied target input and lifecycle monitoring through collection. All delivered block updates during scanning/travel now refuse the batch; this supersedes the historical distant-update exemption below. Fresh Windows ARM64 `pnpm check` passed **596 tests, zero failures/skips**, typecheck/build/format. Flat and rotated pit fakes still measure dirt increases. An offline diagnostic reproduces independent action admission between scan and walk; supplementary scan lifetime also remains unresolved. This is outcome B, not live-ready acceptance. [Full report and next-cycle contract decision](mcbot-integration-01.md). Historical live evidence below was not rerun; no server/world operation or human visual acceptance occurred here.
