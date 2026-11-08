@@ -41,7 +41,14 @@ export class CourseBot extends EventEmitter {
     readonly pit?: { x: number; z: number },
   ) {
     super();
-    this.entity.yaw = target.x === 0 ? Math.PI : -Math.PI / 2;
+    this.entity.yaw =
+      target.x === 0
+        ? target.z < 0
+          ? 0
+          : Math.PI
+        : target.x < 0
+          ? Math.PI / 2
+          : -Math.PI / 2;
   }
   inventory = {
     items: () =>

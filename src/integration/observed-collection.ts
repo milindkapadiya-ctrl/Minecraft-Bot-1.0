@@ -24,7 +24,7 @@ import {
 import { VisibleWalkPort } from "./visible-walk-port.js";
 import { ObservationBatch } from "./observation-batch.js";
 
-export type ObservedCollectionResult =
+type ObservedCollectionOutcome =
   | {
       code: "inventory_increase_observed" | "not_observed";
       steps: number;
@@ -38,6 +38,22 @@ export type ObservedCollectionResult =
       collection?: NearbyCollectionResult;
       route?: RouteResult;
     };
+
+/** Historical diagnostics only, returned after operation completion. No cells
+ * or execution/admission capabilities leave the production collector. */
+export interface NavigationEvidence {
+  scans: number;
+  decisions: number;
+  evaluations: number;
+  phase: string;
+  reason: string;
+  proposed: Position | null;
+  handoff: boolean;
+  arrival: boolean;
+}
+export type ObservedCollectionResult = ObservedCollectionOutcome & {
+  navigation: NavigationEvidence[];
+};
 
 const invalidationEvents = [
   "blockUpdate",
@@ -97,14 +113,17 @@ export async function collectObservedDirt(
   signal?: AbortSignal,
 ): Promise<ObservedCollectionResult> {
   target = { ...target };
+  const navigation: NavigationEvidence[] = [];
   const result = await runner.runOperation(
     32000,
-    (scope) => collectOwned(context, scope, target, scope.signal),
+    (scope) => collectOwned(context, scope, target, scope.signal, navigation),
     signal,
   );
-  if (result.code === "ok" && result.value) return result.value;
+  if (result.code === "ok" && result.value)
+    return { ...result.value, navigation: structuredClone(navigation) };
   return {
     ...result.value,
+    navigation: structuredClone(navigation),
     code:
       result.code === "timeout"
         ? "timeout"
@@ -124,7 +143,8 @@ async function collectOwned(
   runner: OperationScope,
   target: Target,
   signal: AbortSignal,
-): Promise<ObservedCollectionResult> {
+  navigation: NavigationEvidence[],
+): Promise<ObservedCollectionOutcome> {
   // The caller may retain and mutate both objects while this operation awaits.
   target = { ...target };
   const initial = { ...context.readSession() };
@@ -143,7 +163,7 @@ async function collectOwned(
     reason: string,
     collection?: NearbyCollectionResult,
     route?: RouteResult,
-  ): ObservedCollectionResult => ({
+  ): ObservedCollectionOutcome => ({
     code: timedOut ? "timeout" : signal?.aborted ? "cancelled" : "refused",
     steps,
     reason: invalidated ? "world_or_session_changed" : reason,
@@ -284,6 +304,17 @@ async function collectOwned(
       }
       if (attempt === 3) return fail("waypoint_limit");
       const batch = new ObservationBatch(context, runner, controller.signal);
+      const evidence: NavigationEvidence = {
+        scans: 0,
+        decisions: 0,
+        evaluations: 0,
+        phase: "acquiring",
+        reason: "",
+        proposed: null,
+        handoff: false,
+        arrival: false,
+      };
+      navigation.push(evidence);
       let waypoint;
       let finalPose;
       try {
@@ -343,10 +374,15 @@ async function collectOwned(
           visited: routeAnchors,
           usedSideStep,
         });
+        Object.assign(evidence, batch.diagnostics);
+        evidence.proposed = waypoint ? { ...waypoint.to } : null;
         finalPose = stationaryState(bot)!.pose;
         // Retain reservation while delivering queued cancellation/world events.
         await batch.handoff(runner);
+        evidence.handoff = true;
       } catch {
+        if (!evidence.decisions) Object.assign(evidence, batch.diagnostics);
+        evidence.reason = batch.diagnostics.reason || "batch_refused";
         return fail(batch.diagnostics.reason || "batch_refused");
       } finally {
         batch.dispose();
@@ -414,6 +450,7 @@ async function collectOwned(
         ))
       )
         return fail("arrival_not_settled");
+      evidence.arrival = true;
       // The scan was consumed by WALK1. Loop obtains a new batch before WALK2.
     }
     return fail("waypoint_limit");

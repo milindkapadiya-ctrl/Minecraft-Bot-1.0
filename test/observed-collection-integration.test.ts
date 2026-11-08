@@ -164,6 +164,37 @@ test("bounded local probes can reobserve around a visible one-cell pit", async (
   }
 });
 
+test("documented north and west pit orientations retain genuine bounded decision and arrival evidence", async () => {
+  for (const [target, pit] of [
+    [
+      { x: 0, z: -2 },
+      { x: 0, z: -1 },
+    ],
+    [
+      { x: -2, z: 0 },
+      { x: -1, z: 0 },
+    ],
+  ] as const) {
+    const { result } = await course(target, false, undefined, pit);
+    assert.equal(
+      result.code,
+      "inventory_increase_observed",
+      JSON.stringify(result),
+    );
+    assert.equal(result.steps, 3);
+    assert.equal(result.navigation.length, 3);
+    for (const evidence of result.navigation) {
+      assert.ok(evidence.scans >= 1 && evidence.scans <= 3);
+      assert.equal(evidence.decisions, 1);
+      assert.ok(evidence.evaluations >= 4 && evidence.evaluations <= 8);
+      assert.equal(evidence.phase, "consumed");
+      assert.equal(evidence.handoff, true);
+      assert.equal(evidence.arrival, true);
+      assert.ok(evidence.proposed);
+    }
+  }
+});
+
 test("unrelated look, move and collector requests cannot enter either route handoff", async (t) => {
   for (const gap of ["exclusive", "look"] as const)
     await t.test(gap, async () => {
