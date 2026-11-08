@@ -1,5 +1,7 @@
 # NAV-06 — proposed scan-to-plan admission
 
+**MCBOT-INTEGRATION-02 approved delta:** the production observed collector now uses one private acquisition batch (at most three genuine scanner results) consumed once for one immediate synchronous navigation decision. That decision may perform at most four target-adjacent and four local-probe planner evaluations. This explicitly supersedes this historical proposal's one-planner-call rule for that production path. It does not implement or claim recovery of missing NAV-07, migrate other navigation workflows, permit caching, or weaken movement guards. See [implementation and validation](mcbot-integration-02.md); the original design below remains historical.
+
 Will / Navigation, 2026-10-11. **Specification and test design only; pending Ethan/HQ review.** No admission service, test implementation, production integration or execution is authorized. Evidence: Navigation `ea0a519`, merged main `acc5736`, Task33 checkpoint `24b7855`, published Perception `2bca5d2` / Task43 handoff. Older validation totals are historical, not rerun here.
 
 ## Existing boundary and guarantees
