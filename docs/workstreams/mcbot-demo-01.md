@@ -93,7 +93,7 @@ The final late-exit telemetry fix is `6e849417537467571f693318e5552e2517f960a2`.
 | Synchronous capture repair and regressions        | `5834304debe89d8e23831d3575934a45aa83f328` | West only               |
 | Always preserve late server-exit telemetry        | `6e849417537467571f693318e5552e2517f960a2` | Offline validation only |
 
-The development branch targets verified `codex/mcbot-integration-02`, preserving the existing integration-01 → PR#6 → PR#5 → main stack. Publication and final documentation-only checks are recorded below after completion. No main merge or force-push.
+The development branch targets verified `codex/mcbot-integration-02`, preserving the existing integration-01 → PR#6 → PR#5 → main stack. Evidence/handoff commit `74869db1dc5b3d422451198e6a63ab60e608b129` and all implementation commits were pushed successfully using existing access with `git -c credential.interactive=never push --set-upstream origin codex/mcbot-demo-01`, prompts disabled. One draft-PR creation attempt returned HTTP403, `Resource not accessible by integration`; **no PR was created**. No repeated permission/credential/browser attempts, force-push or main merge. The [published focused comparison](https://github.com/milindkapadiya-ctrl/Minecraft-Bot-1.0/compare/codex/mcbot-integration-02...codex/mcbot-demo-01) and prepared PR text remain available. Final documentation-only `pnpm lint` and `git diff --check` passed; this publication note does not change tested code or live evidence.
 
 Prepared draft PR title: `Record bounded live body acceptance and repair scanner catch-up scheduling`.
 
