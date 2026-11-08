@@ -4,6 +4,8 @@
 
 Implementation checkpoint: `791eacba47a676125b736dafc48861292b8de4be`, branch `codex/mcbot-integration-01`. The documentation commit that contains this report follows that exact code checkpoint. Base: `89a3381527aa6e13ab502f53ca6eee7a90b7d1ef` (PR #6). No main merge, force push, dependency update, Minecraft connection, server launch or world operation occurred.
 
+Publication: the branch and handoff commit `ed22bd95d74831617f766790fa1847116670c4d8` were pushed successfully. Draft PR creation through the existing GitHub connector returned HTTP 403, `Resource not accessible by integration`. The browser fallback showed GitHub signed out; no new credentials were obtained. **No draft PR was created.** The [published comparison against PR #6](https://github.com/milindkapadiya-ctrl/Minecraft-Bot-1.0/compare/codex/body-e2e-integration...codex/mcbot-integration-01) is reviewable. Prepared title: “Harden body integration and document remaining admission blockers”; base `codex/body-e2e-integration`, head `codex/mcbot-integration-01`, draft required. The existing stack remains PR #6 → PR #5 → main. This publication note is a documentation-only follow-up; the tested implementation is unchanged.
+
 ## Repository truth and selection
 
 The supplied workspace was an empty Git repository: unborn `master`, no remote, no files or commits and one worktree. A separate `integration` clone preserves it. The clone began clean on main. No existing work was stashed, reset, cleaned or overwritten.
