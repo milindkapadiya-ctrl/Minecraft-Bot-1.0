@@ -79,3 +79,9 @@ The user authorizes official OBS and observer-only administrative Spectator setu
 ## CAMERA-02 continuation
 
 Both original attempts remain authorized and unconsumed; the campaign root remains absent and all15 prior evidence hashes are unchanged. No harness gate or gameplay contract changed. Actual OBS localhost control and signed-in launcher/client launch were observed, but external isolation, actual recording and the rendered observer view remain unverified. An earlier OBS startup process still requires normal cleanup. [Current CAMERA-02 evidence and remaining prerequisites](mcbot-camera-02.md).
+
+## CAMERA-03 continuation — current evidence
+
+One harmless desktop clip was recorded through programmatic local OBS UI control, finalized and natively decoded (700 frames, changing nonblank content, assistant inspection). Minecraft26.1 rendered its main menu and appeared correctly in OBS after selecting Modern (WGC), exact window-title matching and1280×720 bounds. All owned applications closed. WebSocket remains disabled; there is no independent remote test origin and network isolation is unverified. No world/server was entered.
+
+The original campaign/run IDs, false human-readiness fields, absent campaign root and all15 historical evidence hashes remain unchanged. The evidence-bound local handoff is `output/demo-02/camera-03-handoff.json`; it does not claim human review or implement unattended lifecycle orchestration. The live harness has not been bypassed. Follow [CAMERA-03's exact readiness checklist](mcbot-camera-03.md) before the next two-attempt milestone. In-world filming setup must occur inside a counted authorized scenario, with an actual captured view before its integrated call; no extra camera-only experiment is allowed.

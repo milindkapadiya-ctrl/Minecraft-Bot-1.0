@@ -70,3 +70,9 @@ Official OBS is deployed, but authenticated remote control is intentionally disa
 ## CAMERA-02 update
 
 A narrowly scoped OBS firewall rule is installed, but external isolation is not verified; WebSocket remains disabled. No video or rendered spectator view is accepted. The working OBS instance closed normally, while an earlier hidden startup process remains an explicit cleanup failure. Both live attempts remain unconsumed. See [CAMERA-02](workstreams/mcbot-camera-02.md) for actual network/client evidence, conservative preflight checks, exact rollback and operator requirements.
+
+## CAMERA-03 continuation — current evidence
+
+One harmless desktop clip was recorded through programmatic local OBS UI control, finalized and natively decoded (700 frames, changing nonblank content, assistant inspection). Minecraft26.1 rendered its main menu and appeared correctly in OBS after selecting Modern (WGC), exact window-title matching and1280×720 bounds. All owned applications closed. WebSocket remains disabled; there is no independent remote test origin and network isolation is unverified. No world/server was entered.
+
+The original campaign/run IDs, false human-readiness fields, absent campaign root and all15 historical evidence hashes remain unchanged. The evidence-bound local handoff is `output/demo-02/camera-03-handoff.json`; it does not claim human review or implement unattended lifecycle orchestration. The live harness has not been bypassed. Follow [CAMERA-03's exact readiness checklist](workstreams/mcbot-camera-03.md) before the next two-attempt milestone. In-world filming setup must occur inside a counted authorized scenario, with an actual captured view before its integrated call; no extra camera-only experiment is allowed.
