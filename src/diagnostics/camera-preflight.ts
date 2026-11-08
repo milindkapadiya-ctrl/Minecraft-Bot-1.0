@@ -84,7 +84,10 @@ export function checkObsIsolation(
     reasons.push("authenticated_control_unverified");
   if (
     evidence.probes.some(
-      (p) => p.destinationIsNonLoopback && p.outcome === "connected",
+      (p) =>
+        p.origin === "separate-host" &&
+        p.destinationIsNonLoopback &&
+        p.outcome === "connected",
     )
   )
     reasons.push("non_loopback_connected");
@@ -107,6 +110,7 @@ export function cameraReadinessFailures(input: {
   decodedFrames: number;
   changingContentVerified: boolean;
   graphicalObserverVerified: boolean;
+  javaWindowApproval: "granted" | "unavailable" | "not_requested";
   cleanupFailures: readonly string[];
 }): string[] {
   return [
@@ -115,9 +119,106 @@ export function cameraReadinessFailures(input: {
       ? ["decoded_frames_missing"]
       : []),
     ...(!input.changingContentVerified ? ["changing_content_unverified"] : []),
+    ...(input.javaWindowApproval !== "granted"
+      ? ["java_window_approval_unavailable"]
+      : []),
     ...(!input.graphicalObserverVerified
       ? ["graphical_observer_unverified"]
       : []),
     ...input.cleanupFailures,
   ];
+}
+
+export interface ObsProcessIdentity {
+  pid: number;
+  createdUtc: string;
+  executable: string;
+  owner: string;
+}
+
+/** Validate output from the native decoder child, never from a readiness manifest. */
+export function nativeDecodedVideoProof(report: unknown): {
+  frames: number;
+  meaningful: boolean;
+} {
+  const value = report as {
+    decoder?: {
+      DecodedFrames?: number;
+      EndOfStream?: boolean;
+      Width?: number;
+      Height?: number;
+      Samples?: { Seconds?: number; Sha256?: string; Nonblank?: boolean }[];
+    };
+  } | null;
+  const d = value?.decoder;
+  if (
+    !d ||
+    !Number.isSafeInteger(d.DecodedFrames) ||
+    d.DecodedFrames! < 2 ||
+    d.EndOfStream !== true ||
+    !Number.isSafeInteger(d.Width) ||
+    !Number.isSafeInteger(d.Height) ||
+    d.Width! < 1 ||
+    d.Width! > 4096 ||
+    d.Height! < 1 ||
+    d.Height! > 2160 ||
+    !Array.isArray(d.Samples) ||
+    d.Samples.length > d.DecodedFrames! ||
+    d.Samples.some(
+      (s) =>
+        !s ||
+        !Number.isFinite(s.Seconds) ||
+        s.Seconds! < 0 ||
+        typeof s.Sha256 !== "string" ||
+        !/^[a-f0-9]{64}$/.test(s.Sha256),
+    )
+  )
+    throw Error("native_decode_incomplete");
+  const nonblank = d.Samples.filter((s) => s.Nonblank === true);
+  if (
+    new Set(nonblank.map((s) => s.Sha256)).size < 2 ||
+    new Set(nonblank.map((s) => s.Seconds)).size < 2
+  )
+    throw Error("changing_nonblank_frames_missing");
+  return { frames: d.DecodedFrames!, meaningful: true };
+}
+
+/** Inventory must include all OBS processes, not just the expected PID.
+ * Recollect immediately before acting: a remembered PID is never ownership.
+ * This checks identity only; it does not authorize termination or recording.
+ */
+export function checkObsProcessOwnership(
+  inventory: { observedAt: number; processes: readonly ObsProcessIdentity[] },
+  expected: ObsProcessIdentity,
+  now = Date.now(),
+): string[] {
+  if (
+    !Number.isFinite(inventory.observedAt) ||
+    inventory.observedAt > now ||
+    now - inventory.observedAt > 5000
+  )
+    return ["obs_process_inventory_stale"];
+  if (inventory.processes.length === 0) return ["owned_obs_missing"];
+  if (inventory.processes.length !== 1) return ["multiple_obs_instances"];
+  const actual = inventory.processes[0]!;
+  const reasons: string[] = [];
+  if (
+    !Number.isSafeInteger(expected.pid) ||
+    expected.pid <= 0 ||
+    actual.pid !== expected.pid ||
+    !Number.isFinite(Date.parse(expected.createdUtc)) ||
+    actual.createdUtc !== expected.createdUtc
+  )
+    reasons.push("obs_process_identity_changed");
+  if (
+    !expected.executable ||
+    windowsPath(actual.executable) !== windowsPath(expected.executable)
+  )
+    reasons.push("obs_executable_mismatch");
+  if (
+    !expected.owner ||
+    actual.owner.toLowerCase() !== expected.owner.toLowerCase()
+  )
+    reasons.push("obs_owner_mismatch");
+  return reasons;
 }
