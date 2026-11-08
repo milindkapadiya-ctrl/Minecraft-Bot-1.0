@@ -26,6 +26,11 @@ import { collectObservedDirt } from "../dist/src/integration/observed-collection
 import { ServerLifecycle } from "../dist/src/diagnostics/server-lifecycle.js";
 import { BufferedJournal } from "../dist/src/diagnostics/buffered-journal.js";
 import { portReleaseProbe } from "../dist/src/diagnostics/port-probe.js";
+import {
+  AutomaticDemoGate,
+  verifyPreflightVideo,
+} from "../dist/src/diagnostics/demo-automatic.js";
+import { spectatorCommands } from "../dist/src/diagnostics/spectator-camera.js";
 
 const plan = JSON.parse(readFileSync(process.env.DEMO02_PLAN ?? "", "utf8"));
 validateCampaign(plan);
@@ -37,7 +42,21 @@ const scenario = scenarios[process.argv[2]];
 if (!scenario || process.argv.length !== 3)
   throw Error("north_or_west_required");
 const run = plan.attempts[process.argv[2]];
-validateReadiness(plan, run);
+const automationDirectory = process.env.DEMO02_AUTOMATION_DIR;
+const automation = automationDirectory
+  ? JSON.parse(
+      readFileSync(resolve(automationDirectory, "control.json"), "utf8"),
+    )
+  : undefined;
+const camera = automation
+  ? new AutomaticDemoGate(
+      plan,
+      process.argv[2],
+      automationDirectory,
+      automation.expected,
+    )
+  : undefined;
+if (!camera) validateReadiness(plan, run);
 verifyRoot(plan.root);
 if (process.env.DEMO02_RECORDING_RUN !== run.runId)
   throw Error("operator_recording_confirmation_required");
@@ -62,6 +81,12 @@ await new Promise((accept, reject) => {
   probe.listen(port, "127.0.0.1", accept);
 });
 await new Promise((accept) => probe.close(accept));
+if (camera) {
+  await verifyPreflightVideo(automation.desktopProof, "desktop");
+  await verifyPreflightVideo(automation.mainMenuProof, "main-menu");
+  // This expires before a world or ledger claim exists. No human flags are changed.
+  await camera.checkpoint("preflight", AbortSignal.timeout(30000));
+}
 claimAttempt(plan.root, scenario.name, run.runId);
 const telemetry = BufferedJournal.file(resolve(directory, "telemetry.jsonl"));
 const serverConsole = BufferedJournal.file(
@@ -144,6 +169,7 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 async function confirmRecording() {
+  if (camera) return; // Fresh per-session challenges below replace interactive confirmation.
   const terminal = createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -170,9 +196,72 @@ const result = {
   humanVisualAcceptance: "pending",
   gameplay: "not_attempted",
   botCleanup: [],
+  readinessMode: camera ? "automatic-evidence" : "human",
+  humanPresent: camera ? false : run.humanPresent,
 };
 let server;
 let lifecycle;
+let observerConfigured = false;
+const observerPlan = camera
+  ? spectatorCommands(
+      plan,
+      process.argv[2],
+      run.runId,
+      automation.expected.observer,
+    )
+  : undefined;
+async function prepareObserver(bot, stage) {
+  if (!camera) return;
+  const deadline = performance.now() + 30000;
+  while (
+    !cancel.signal.aborted &&
+    performance.now() < deadline &&
+    !bot.players[observerPlan.observer]?.entity
+  )
+    await delay(100);
+  if (
+    cancel.signal.aborted ||
+    bot.username !== observerPlan.bot ||
+    bot.game.gameMode !== "survival" ||
+    !bot.players[observerPlan.observer]?.entity ||
+    bot.players[observerPlan.observer].username !== observerPlan.observer
+  )
+    throw Error("observer_or_survival_identity_unverified");
+  // Only the separately authorized filming identity receives console commands.
+  // The command plan is fixed/validated; no world data is queried or given to the body.
+  for (const command of observerPlan.setup) {
+    if (!server.stdin.write(command + "\n"))
+      await new Promise((yes, no) => {
+        const timeout = setTimeout(() => {
+          cleanup();
+          no(Error("observer_command_timeout"));
+        }, 2000);
+        const done = () => {
+          cleanup();
+          yes();
+        };
+        const cleanup = () => {
+          clearTimeout(timeout);
+          server.stdin.off("drain", done);
+        };
+        server.stdin.once("drain", done);
+      });
+    observerConfigured = true;
+    record("observer_admin_command_sent", {
+      command,
+      observer: observerPlan.observer,
+      runId: run.runId,
+    });
+  }
+  // A successful write is not proof of the rendered spectator view.
+  await camera.checkpoint(stage, cancel.signal, 30000);
+  if (bot.game.gameMode !== "survival") throw Error("survival_mode_changed");
+  record("observer_view_verified", {
+    stage,
+    observer: observerPlan.observer,
+    bot: observerPlan.bot,
+  });
+}
 const checkPort = portReleaseProbe(port);
 const eventLoop = monitorEventLoopDelay({ resolution: 20 });
 const loopSnapshot = () => ({
@@ -348,9 +437,23 @@ try {
   await ready;
   clearTimeout(startupTimeout);
   if (cancel.signal.aborted) throw Error("supervisor_stop");
+  if (camera)
+    await writeFile(
+      resolve(automationDirectory, "observer-connect.json"),
+      JSON.stringify({
+        campaignId: plan.campaignId,
+        runId: run.runId,
+        host: "127.0.0.1",
+        port,
+        observer: observerPlan.observer,
+        bot: observerPlan.bot,
+      }),
+      { flag: "wx" },
+    );
   await confirmRecording();
   if (scenario.pit) {
     await sessionWork("fixture_preparation", async (f) => {
+      await prepareObserver(f.bot, "fixture-view");
       result.preparationStart = stationaryState(f.bot)?.pose.position;
       const target = await viewTarget(f, 1);
       const dig = await f.runner.run(
@@ -382,6 +485,9 @@ try {
     );
     if (!before.ok) throw Error("initial_inventory_refused");
     result.initialInventory = before.details.inventory;
+    await prepareObserver(f.bot, "collection-view");
+    if (cancel.signal.aborted || f.bot.game.gameMode !== "survival")
+      throw Error("initial_state_invalid");
     writeFileSync(
       resolve(directory, "integrated-attempt.json"),
       JSON.stringify({
@@ -394,12 +500,18 @@ try {
     result.integratedCalls = 1;
     result.status = "attempted";
     record("integrated_attempt_started", { sessionId: f.sessionId });
-    result.collection = await collectObservedDirt(
-      f.context,
-      f.runner,
-      target,
-      cancel.signal,
-    );
+    const collect = async (signal) => {
+      const stop = () => currentSession?.stop("recording_health_failed", 1);
+      signal.addEventListener("abort", stop, { once: true });
+      try {
+        return await collectObservedDirt(f.context, f.runner, target, signal);
+      } finally {
+        signal.removeEventListener("abort", stop);
+      }
+    };
+    result.collection = camera
+      ? await camera.supervise(collect, cancel.signal)
+      : await collect(cancel.signal);
     record("integrated_attempt_result", { result: result.collection });
     await delay(1000);
     const retained = await f.runner.run(
@@ -444,6 +556,22 @@ try {
       ...(await currentSession.done),
     });
   if (lifecycle) {
+    if (
+      observerConfigured &&
+      server?.stdin.writable &&
+      server.exitCode === null
+    ) {
+      try {
+        for (const command of observerPlan.restore)
+          server.stdin.write(command + "\n");
+        result.observerRestore = "requested_not_independently_verified";
+        record("observer_restore_requested", {
+          observer: observerPlan.observer,
+        });
+      } catch {
+        result.observerRestore = "request_failed";
+      }
+    }
     result.eventLoopBeforeStop = loopSnapshot();
     eventLoop.reset();
     result.serverShutdown = await lifecycle.shutdown();
@@ -478,7 +606,11 @@ try {
     result.status = "evidence_incomplete";
   await writeFile(
     resolve(directory, "result.json"),
-    JSON.stringify(result, null, 2),
+    JSON.stringify(
+      { ...result, completedUtc: new Date().toISOString() },
+      null,
+      2,
+    ),
   );
   process.off("SIGINT", shutdown);
   process.off("SIGTERM", shutdown);
