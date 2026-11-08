@@ -1,5 +1,9 @@
 # Milind — Interaction & Inventory
 
+## 2026-11-07 consolidated offline integration
+
+`codex/mcbot-integration-01`, implementation `791eacba47a676125b736dafc48861292b8de4be`, retains the PR #6 pit-detour body with immutable validated scan snapshots, sticky conflict handling, copied target input and lifecycle monitoring through collection. All delivered block updates during scanning/travel now refuse the batch; this supersedes the historical distant-update exemption below. Fresh Windows ARM64 `pnpm check` passed **596 tests, zero failures/skips**, typecheck/build/format. Flat and rotated pit fakes still measure dirt increases. An offline diagnostic reproduces independent action admission between scan and walk; supplementary scan lifetime also remains unresolved. This is outcome B, not live-ready acceptance. [Full report and next-cycle contract decision](mcbot-integration-01.md). Historical live evidence below was not rerun; no server/world operation or human visual acceptance occurred here.
+
 ## 2026-10-31 uninterrupted pit-course and rotated variation
 
 After the bounded detour change below passed the full Node 24 check, two **fresh, separate** Minecraft Java 26.1 flat Peaceful Survival fixtures each completed one uninterrupted production `collectObservedDirt` call. Both pits were built first by the bot with freshly inspected, guarded, server-confirmed Survival digs; the construction session disconnected before the test session. The test harness used its fixture plan only to choose a grass block that also appeared in a fresh player-visible `inspect`. All route cells came from the production three-view scanner and consistent supplementary visible scans; each walk used the existing guarded `walk_to`. No commands, teleportation, creative mode, supplied inventory, world-file gameplay reads or hidden terrain scans were used.

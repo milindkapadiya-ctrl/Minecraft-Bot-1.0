@@ -1,5 +1,7 @@
 # Team workflow
 
+**Current task override (2026-11-07):** MCBOT-INTEGRATION-01 uses one unified development lead and the dedicated `codex/mcbot-integration-01` branch in the `integration` checkout under the supplied Minecraft Bot workspace. The user's assignment authorizes routine offline integration, logical commits and a draft review checkpoint; it supersedes the historical three-developer management structure and documentation-only restrictions below. Material shared-interface redesign and live/world operations remain outside scope. [Current report](workstreams/mcbot-integration-01.md) records the exact base, tested implementation and unresolved ownership/admission decision. Older checkout/owner statements are historical context, not instructions to recreate that arrangement.
+
 Read [RESUME](RESUME.md) first, then [AGENTS](../AGENTS.md) and your assigned [workstream](RESUME.md#parallel-workstreams-and-integration-blockers). [PROJECT_CONTEXT](PROJECT_CONTEXT.md) explains durable design decisions. Conversations are working notes; code, tests and repository documentation are the handoff.
 
 ## Checkout location and ownership

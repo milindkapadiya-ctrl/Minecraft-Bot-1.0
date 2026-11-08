@@ -1,5 +1,7 @@
 # Will — Navigation & Movement
 
+**Current integration checkpoint, 2026-11-07:** the active PR #6-derived path uses `integration/visible-walk-port.ts`, the existing route executor and guarded `walk_to`; older statements below that no production port exists are historical. `codex/mcbot-integration-01` / implementation `791eacba47a676125b736dafc48861292b8de4be` passed 596 offline tests with typecheck/build/format, preserving two flat and two pit orientations. Whole-sequence reservation/action history and single-use supplementary admission remain unresolved; NAV-07's reported local-only checkpoint is unavailable. [Integration report](mcbot-integration-01.md) is the current responsibility map and next-cycle decision. No new live testing or human visual acceptance.
+
 ## Purpose and major objective
 
 Make legitimate known terrain → planner → route segments → executor → exact land movement → safe arrival usable in real Minecraft. Harden and validate the existing stack, preserving the knowledge and safety boundaries. Follow [team workflow](../TEAM_WORKFLOW.md) and [AGENTS](../../AGENTS.md).
