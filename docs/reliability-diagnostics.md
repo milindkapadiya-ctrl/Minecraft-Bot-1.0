@@ -56,3 +56,7 @@ An operator uses an existing logged-in Java client with a separate username. Use
 Frame the whole obstacle and bot name tag, with a readable terminal and minimal HUD obstruction. At the start show the run ID/UTC cue, the bot's `verified_start` Survival mode, and independent starting inventory evidence. The observer's hearts alone prove only the observer's mode. Record the bot walking around the pit, removing the observed target, descending/picking up, and the measured inventory before/after/retained count. Let captions explain the verified waypoint count and collection outcome. Keep footage running through bot closure and administrative shutdown, including any timeout and subsequent late save/exit. Narration may explain the sequence but cannot provide gameplay guidance.
 
 Acceptance requires fresh north and west technical evidence, a playable reviewed recording showing the established course and collection, truthful Survival/inventory evidence, complete bot/controller cleanup, stop/exit/close before30s, save-message and separate process/port checks. Failed recording, unknown inventory, refused scan, timeout or missing cleanup evidence remains an explicit gap. Late successful shutdown never converts an earlier timeout to an unqualified pass.
+
+## DEMO-02 preparation
+
+The separate `scripts/demo-02-live.mjs` consumes the prepared DEMO-02 plan, not DEMO-01 scenario markers. See [DEMO-02 handoff](workstreams/mcbot-demo-02.md). Both live authorization and human recording preflight remain pending; no video exists.
