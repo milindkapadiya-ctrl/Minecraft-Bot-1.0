@@ -73,6 +73,8 @@ Development checkpoints:
 
 - `22e49f251e3bd8112e5c1542b6a81d4e243f4558` — scanner diagnostics and scheduling stress.
 - `8fe0c6c6c7015d377291ceb1a34e2ca05f59aa69` — shutdown, bounded journals, port probes and storage diagnostics.
-- Recording/readiness documentation is the next logical checkpoint; publication status is appended after the authorized push/one draft-PR attempt.
+- `ef39a330706bcbeeba670214295fcd810b51b4fe` — recording coordination, exact final validation and handoff documentation.
+
+All three checkpoints were pushed successfully to `origin/codex/mcbot-reliability-01` using existing Git access. The single requested draft-PR attempt against `codex/mcbot-demo-01` returned GitHub403, **Resource not accessible by integration**. No PR was created; no retry or credential request was made. A final documentation-only checkpoint records this publication result. The working tree and remote head are verified after that push. This is a published development candidate, not a reviewed/merged main release.
 
 Prepared [draft PR text](mcbot-reliability-01-pr.md), base `codex/mcbot-demo-01`. [Comparison](https://github.com/milindkapadiya-ctrl/Minecraft-Bot-1.0/compare/codex/mcbot-demo-01...codex/mcbot-reliability-01?expand=1). Main and other workstreams are untouched; no merge or destructive history operation is part of this milestone.

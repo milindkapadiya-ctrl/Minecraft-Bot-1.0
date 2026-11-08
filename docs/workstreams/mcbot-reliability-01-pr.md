@@ -6,6 +6,8 @@ Head: `codex/mcbot-reliability-01`
 
 Draft only; no main merge.
 
+Publication status: branch pushed successfully. One draft-PR API call returned403, **Resource not accessible by integration**; no PR was created. This description is retained for a maintainer. [Open the comparison](https://github.com/milindkapadiya-ctrl/Minecraft-Bot-1.0/compare/codex/mcbot-demo-01...codex/mcbot-reliability-01?expand=1) with base/head as above; no additional authorization or credentials were requested.
+
 The north DEMO-01 scan refused without sufficient per-view diagnostics, while west gameplay succeeded but server saving exceeded the30-second acceptance deadline. Add scanner stress coverage and finite refusal details, plus a testable administrative lifecycle that distinguishes stop delivery, save messages, process exit, stream close and port release. Bounded asynchronous journals avoid synchronous disk appends in pipe callbacks and make incomplete evidence explicit. A late successful exit cannot rewrite the original timeout.
 
 Recording metadata and a read-only caption terminal prepare two future recorded pit attempts using existing Windows tools. No Minecraft server/client, world mutation, live attempt, recorder installation or dependency change is part of this milestone. Neither historical failure's exact trigger is proven. Scanner authority, lifetime, camera restoration, ownership, candidate bounds, movement guards and inventory verification remain unchanged.
