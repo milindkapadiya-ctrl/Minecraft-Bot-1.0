@@ -4,15 +4,16 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { createHash, randomUUID } from "node:crypto";
 import {
-  appendFileSync,
   copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import { startSession } from "../dist/src/minecraft/session.js";
 import { ActionRunner } from "../dist/src/actions/runner.js";
 import { ownAirView } from "../dist/src/minecraft/air-compat.js";
@@ -22,6 +23,9 @@ import {
   stationaryState,
 } from "../dist/src/perception/stationarity.js";
 import { collectObservedDirt } from "../dist/src/integration/observed-collection.js";
+import { ServerLifecycle } from "../dist/src/diagnostics/server-lifecycle.js";
+import { BufferedJournal } from "../dist/src/diagnostics/buffered-journal.js";
+import { portReleaseProbe } from "../dist/src/diagnostics/port-probe.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const scenarios = {
@@ -54,9 +58,12 @@ await new Promise((accept, reject) => {
 });
 await new Promise((accept) => probe.close(accept));
 mkdirSync(directory, { recursive: true });
+const telemetry = BufferedJournal.file(resolve(directory, "telemetry.jsonl"));
+const serverConsole = BufferedJournal.file(
+  resolve(directory, "server-console.log"),
+);
 const record = (event, data = {}) =>
-  appendFileSync(
-    resolve(directory, "telemetry.jsonl"),
+  telemetry.append(
     JSON.stringify({ timestamp: new Date().toISOString(), event, ...data }) +
       "\n",
   );
@@ -137,10 +144,23 @@ const result = {
   integratedCalls: 0,
   recording: false,
   humanVisualAcceptance: "pending",
+  gameplay: "not_attempted",
+  botCleanup: [],
 };
 let server;
-let serverExit;
-let exited = false;
+let lifecycle;
+const checkPort = portReleaseProbe(port);
+const eventLoop = monitorEventLoopDelay({ resolution: 20 });
+const loopSnapshot = () => ({
+  samples: eventLoop.count,
+  maxMs: eventLoop.count ? eventLoop.max / 1e6 : null,
+  meanMs: eventLoop.count ? eventLoop.mean / 1e6 : null,
+});
+async function probePort() {
+  const released = await checkPort();
+  lifecycle?.reportPort(released);
+  return released;
+}
 let readyResolve, readyReject;
 const ready = new Promise((yes, no) => {
   readyResolve = yes;
@@ -243,6 +263,7 @@ async function sessionWork(kind, work) {
   if (workPromise) await workPromise;
   currentSession = undefined;
   record("session_cleanup", { kind, ...ended });
+  result.botCleanup.push({ kind, ...ended });
   if (!succeeded || ended.exitCode !== 0) throw Error("session_not_successful");
 }
 
@@ -273,43 +294,32 @@ async function viewTarget({ bot, runner }, distance) {
   return target;
 }
 try {
+  eventLoop.enable();
   server = spawn(java, ["-Xms512M", "-Xmx2G", "-jar", "server.jar", "nogui"], {
     cwd: directory,
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
   record("server_started", { pid: server.pid, port });
-  server.stdin.on("error", () => {});
+  lifecycle = new ServerLifecycle(server, ({ event, ...data }) =>
+    record(event, data),
+  );
   let lineTail = "";
   server.stdout.on("data", (chunk) => {
-    appendFileSync(resolve(directory, "server-console.log"), chunk);
+    lifecycle.observeOutput("stdout", chunk.toString());
+    serverConsole.append(chunk);
     lineTail = (lineTail + chunk.toString()).slice(-8192);
     if (/Done \([^)]+\)!/.test(lineTail)) readyResolve();
   });
-  server.stderr.on("data", (chunk) =>
-    appendFileSync(resolve(directory, "server-console.log"), chunk),
-  );
-  serverExit = new Promise((accept) =>
-    server.once("close", (code, signal) => {
-      exited = true;
-      // Preserve a late close independently; never rewrite an earlier timeout
-      // as a pass or silently lose the process exit evidence.
-      const exitEvidence = {
-        code,
-        signal,
-        pid: server.pid,
-        at: new Date().toISOString(),
-        afterStopTimeout: result.serverExit === "stop_timeout",
-      };
-      record("server_exit", exitEvidence);
-      writeFileSync(
-        resolve(directory, "server-exit.json"),
-        JSON.stringify(exitEvidence, null, 2),
-      );
-      readyReject(Error("server_closed_before_ready"));
-      accept(code);
-    }),
-  );
+  server.stderr.on("data", (chunk) => {
+    lifecycle.observeOutput("stderr", chunk.toString());
+    serverConsole.append(chunk);
+  });
+  server.once("close", () => {
+    readyReject(Error("server_closed_before_ready"));
+    // Late close and port evidence append independently; result.json is immutable.
+    void probePort().catch(() => record("server_port_probe_failed"));
+  });
   server.once("error", () => readyReject(Error("server_launch_failed")));
   await ready;
   clearTimeout(startupTimeout);
@@ -386,6 +396,7 @@ try {
       result.controlsStopped
         ? "passed"
         : "refused";
+    result.gameplay = result.status;
     record("retained_outcome", {
       status: result.status,
       retainedCode: retained.code,
@@ -401,27 +412,50 @@ try {
 } finally {
   clearTimeout(startupTimeout);
   currentSession?.stop("harness_shutdown");
-  if (currentSession) await currentSession.done;
-  if (server && !exited) server.stdin.write("stop\n");
-  if (serverExit) {
-    let timer;
-    result.serverExit = await Promise.race([
-      serverExit,
-      new Promise((r) => {
-        timer = setTimeout(() => r("stop_timeout"), 30000);
-      }),
-    ]);
-    clearTimeout(timer);
+  if (currentSession)
+    result.botCleanup.push({
+      kind: "harness_shutdown",
+      ...(await currentSession.done),
+    });
+  if (lifecycle) {
+    result.eventLoopBeforeStop = loopSnapshot();
+    eventLoop.reset();
+    result.serverShutdown = await lifecycle.shutdown();
+    result.eventLoopDuringStop = loopSnapshot();
+    result.serverExit =
+      result.serverShutdown.outcome === "stopped"
+        ? 0
+        : result.serverShutdown.outcome;
+    result.portReleased = await probePort();
+    result.saveCompletion = lifecycle.snapshot().save.saveCompleted ?? null;
   }
-  if (result.serverExit !== 0 && result.status === "passed")
+  eventLoop.disable();
+  if (
+    (result.serverExit !== 0 ||
+      !result.saveCompletion ||
+      !result.portReleased) &&
+    result.status === "passed"
+  )
     result.status = "cleanup_failed";
   record("scenario_final", result);
-  writeFileSync(
+  const [consoleLog, telemetryLog] = await Promise.all([
+    serverConsole.flush(),
+    telemetry.flush(),
+  ]);
+  result.logging = { consoleLog, telemetryLog };
+  if (
+    (!consoleLog.complete ||
+      !telemetryLog.complete ||
+      result.serverShutdown?.journalError) &&
+    result.status === "passed"
+  )
+    result.status = "evidence_incomplete";
+  await writeFile(
     resolve(directory, "result.json"),
     JSON.stringify(result, null, 2),
   );
   process.off("SIGINT", shutdown);
   process.off("SIGTERM", shutdown);
   console.log(JSON.stringify(result));
-  if (result.serverExit === "stop_timeout") process.exitCode = 1;
+  if (result.status !== "passed") process.exitCode = 1;
 }
