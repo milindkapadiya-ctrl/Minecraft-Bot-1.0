@@ -9,6 +9,7 @@ import { prepareWalk, WalkMotion } from "./walk-to.js";
 import type { Bot } from "mineflayer";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
+import type { EventEmitter } from "node:events";
 import type { Log } from "../telemetry/logger.js";
 import { prepareFlat, FlatApproachMotion } from "./flat-approach.js";
 import { prepareStepUp, StepUpMotion } from "./step-up.js";
@@ -165,6 +166,38 @@ export interface ExclusiveContext {
 type ExclusiveWork = (context: ExclusiveContext) => Promise<void>;
 const canonical = new WeakMap<Bot, ActionRunner>();
 
+export interface OperationScope {
+  readonly signal: AbortSignal;
+  /** Checks lifetime and returns the admitted-child epoch, not a public token. */
+  checkpoint(): number;
+  run(input: unknown, signal?: AbortSignal): Promise<ActionResult>;
+  runExclusive(
+    timeoutMs: number,
+    work: ExclusiveWork,
+    signal?: AbortSignal,
+  ): Promise<ActionResult>;
+  /** Cancels only this operation's current child, including scanner cleanup. */
+  cancel(): void;
+}
+type OperationState = {
+  expired: boolean;
+  childPending: boolean;
+  epoch: number;
+  pending?: Promise<ActionResult>;
+  stop(code: Code): void;
+};
+const operationScopes = new WeakMap<
+  OperationScope,
+  { bot: Bot; check(): number }
+>();
+/** Internal compiled collaborators authenticate the actual handle, not its shape. */
+export function operationCheckpoint(scope: OperationScope, bot: Bot): number {
+  const binding = operationScopes.get(scope);
+  if (!binding || binding.bot !== bot)
+    throw new Error("invalid_operation_scope");
+  return binding.check();
+}
+
 // No queue: callers await each result; overlap is rejected instead of retaining
 // stale movement requests. This class is the sole owner of movement controls.
 export class ActionRunner {
@@ -172,6 +205,7 @@ export class ActionRunner {
     | { id: string; finish: (code: Code, shutdown?: boolean) => void }
     | undefined;
   private closed = false;
+  private operation: OperationState | undefined;
   constructor(
     private readonly bot: Bot,
     private readonly log: Log,
@@ -185,11 +219,13 @@ export class ActionRunner {
   private readonly disconnect = () => this.close();
 
   cancel(actionId?: string) {
+    if (actionId === undefined) this.operation?.stop("cancelled");
     if (actionId === undefined || this.active?.id === actionId)
       this.active?.finish("cancelled");
   }
   close() {
     this.closed = true;
+    this.operation?.stop("interrupted");
     this.active?.finish("interrupted", true);
     closeControls(this.bot);
     this.bot.off("end", this.disconnect);
@@ -197,6 +233,190 @@ export class ActionRunner {
 
   run(input: unknown, signal?: AbortSignal): Promise<ActionResult> {
     return this.execute(validateAction(input), signal);
+  }
+
+  /** Bounded compiled orchestration; this reserves admission, not raw controls.
+   * Children still use the unchanged stationary/moving primitive contracts.
+   */
+  async runOperation<T>(
+    timeoutMs: number,
+    work: (scope: OperationScope) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<{ code: Code; value?: T | undefined }> {
+    if (
+      !Number.isInteger(timeoutMs) ||
+      timeoutMs < 100 ||
+      timeoutMs > 32000 ||
+      typeof work !== "function"
+    )
+      return { code: "invalid_arguments" };
+    if (this.closed) return { code: "closed" };
+    if (this.operation || this.active) return { code: "busy" };
+    if (signal?.aborted) return { code: "cancelled" };
+    installControlOwnership(this.bot);
+    protectControls(this.bot);
+    const controller = new AbortController();
+    const deadline = performance.now() + timeoutMs;
+    const entity = this.bot.entity,
+      dimension = this.bot.game.dimension;
+    let code: Code | undefined;
+    let wake!: () => void;
+    const stopped = new Promise<void>((resolve) => {
+      wake = resolve;
+    });
+    const state: OperationState = {
+      expired: false,
+      childPending: false,
+      epoch: 0,
+      stop: (reason) => {
+        if (state.expired) return;
+        code = reason;
+        state.expired = true;
+        controller.abort();
+        this.active?.finish(reason === "ok" ? "cancelled" : reason);
+        wake();
+      },
+    };
+    this.operation = state;
+    const events = this.bot as EventEmitter;
+    const monitors: { event: string; listener: (...args: any[]) => void }[] =
+      [];
+    const check = () => {
+      if (performance.now() >= deadline) state.stop("timeout");
+      if (monitors.some((w) => !events.listeners(w.event).includes(w.listener)))
+        state.stop("interrupted");
+      if (
+        this.bot.entity !== entity ||
+        this.bot.game.dimension !== dimension ||
+        this.bot.game.gameMode !== "survival"
+      )
+        state.stop("interrupted");
+      if (state.expired || this.operation !== state || this.closed)
+        throw new Error("operation_expired");
+      return state.epoch;
+    };
+    const scope: OperationScope = Object.freeze({
+      signal: controller.signal,
+      checkpoint: check,
+      run: (input: unknown, childSignal?: AbortSignal) => {
+        try {
+          check();
+        } catch {
+          /* execute returns the latched refusal. */
+        }
+        return this.execute(
+          validateAction(input),
+          childSignal
+            ? AbortSignal.any([controller.signal, childSignal])
+            : controller.signal,
+          undefined,
+          state,
+        );
+      },
+      runExclusive: (
+        ms: number,
+        child: ExclusiveWork,
+        childSignal?: AbortSignal,
+      ) => {
+        try {
+          check();
+        } catch {
+          /* execute returns the latched refusal. */
+        }
+        return this.execute(
+          validateAction({ type: "inspect", timeoutMs: ms }) &&
+            typeof child === "function"
+            ? { type: "exclusive", timeoutMs: ms }
+            : null,
+          childSignal
+            ? AbortSignal.any([controller.signal, childSignal])
+            : controller.signal,
+          child,
+          state,
+        );
+      },
+      cancel: () => {
+        if (this.operation === state && !state.expired)
+          this.active?.finish("cancelled");
+      },
+    });
+    operationScopes.set(scope, { bot: this.bot, check });
+    const abort = () => state.stop("cancelled");
+    const interrupt = () => state.stop("interrupted");
+    const watch = () => {
+      try {
+        check();
+      } catch {
+        /* Latched by check. */
+      }
+    };
+    const timer = setTimeout(() => state.stop("timeout"), timeoutMs);
+    signal?.addEventListener("abort", abort, { once: true });
+    const add = (event: string, listener: (...args: any[]) => void) => {
+      monitors.push({ event, listener });
+      events.on(event, listener);
+    };
+    for (const event of ["end", "death", "respawn", "forcedMove"] as const)
+      add(event, interrupt);
+    add("game", watch);
+    add("physicsTick", watch);
+    add(
+      "removeListener",
+      (event: string, listener: (...args: any[]) => void) => {
+        if (
+          !state.expired &&
+          monitors.some((w) => w.event === event && w.listener === listener)
+        )
+          state.stop("interrupted");
+      },
+    );
+    let value: T | undefined;
+    let workDone = false;
+    const task = Promise.resolve()
+      .then(() => {
+        check();
+        return work(scope);
+      })
+      .then(
+        (result) => {
+          value = result;
+          workDone = true;
+          state.stop(state.childPending ? "execution_error" : "ok");
+        },
+        () => {
+          workDone = true;
+          state.stop("execution_error");
+        },
+      );
+    try {
+      await stopped;
+      // Revoke immediately but retain reservation through child and cooperative
+      // callback cleanup. Unsettled cleanup faults the canonical controller.
+      let cleanupTimer: NodeJS.Timeout | undefined;
+      const clean = await Promise.race([
+        Promise.all([task, state.pending]).then(() => true),
+        new Promise<false>((resolve) => {
+          cleanupTimer = setTimeout(() => resolve(false), 500);
+        }),
+      ]);
+      clearTimeout(cleanupTimer);
+      if (!clean) {
+        this.close();
+        code = "execution_error";
+      }
+      if (state.pending) await state.pending;
+      if (this.closed && code === "ok") code = "execution_error";
+      return {
+        code: code ?? "execution_error",
+        ...(workDone ? { value } : {}),
+      };
+    } finally {
+      state.expired = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      for (const w of monitors) events.off(w.event, w.listener);
+      if (this.operation === state) this.operation = undefined;
+    }
   }
 
   /** Trusted compiled composition only; no callback comes from CLI/model input.
@@ -221,6 +441,7 @@ export class ActionRunner {
     action: Action | { type: "exclusive"; timeoutMs: number } | null,
     signal?: AbortSignal,
     work?: ExclusiveWork,
+    owner?: OperationState,
   ): Promise<ActionResult> {
     const started = performance.now();
     const id = randomUUID();
@@ -245,7 +466,10 @@ export class ActionRunner {
     };
     if (!action) return reject("invalid_arguments");
     if (this.closed) return reject("closed");
-    if (this.active) return reject("busy");
+    if (owner && (owner.expired || this.operation !== owner))
+      return reject("cancelled");
+    if (this.operation && this.operation !== owner) return reject("busy");
+    if (this.active || owner?.childPending) return reject("busy");
     if (signal?.aborted) return reject("cancelled");
     const healthy = () => {
       const s = motionSnapshot(this.bot);
@@ -278,7 +502,11 @@ export class ActionRunner {
     installControlOwnership(this.bot);
     protectControls(this.bot);
     const ownership = acquireControls(this.bot, action.type === "exclusive");
-    return new Promise((resolve) => {
+    if (owner) {
+      owner.childPending = true;
+      owner.epoch++;
+    }
+    const pending = new Promise<ActionResult>((resolve) => {
       const cancellation = new AbortController();
       const ownedLook = (yaw: number, pitch: number) =>
         ownership.within(() => this.bot.look(yaw, pitch, true));
@@ -787,5 +1015,11 @@ export class ActionRunner {
         finish("execution_error");
       }
     });
+    if (!owner) return pending;
+    const settled = pending.finally(() => {
+      owner.childPending = false;
+    });
+    owner.pending = settled;
+    return settled;
   }
 }

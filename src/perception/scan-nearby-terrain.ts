@@ -68,9 +68,15 @@ const unsafeAir = (air: OwnAir) =>
  */
 export async function scanNearbyTerrain(
   context: ScanContext,
-  runner: ActionRunner,
+  runner: Pick<ActionRunner, "runExclusive">,
   options: Options = {},
 ): Promise<ScanResult> {
+  // A late scanner callback may only cancel its own child, never a later
+  // child/operation on the canonical runner.
+  const cancellation = new AbortController();
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, cancellation.signal])
+    : cancellation.signal;
   let failure: string | undefined;
   let originState: NonNullable<ReturnType<typeof stationaryState>> | undefined;
   let completed: Extract<ScanResult, { ok: true }> | undefined;
@@ -128,13 +134,13 @@ export async function scanNearbyTerrain(
       };
       const invalidate = () => {
         failure ??= "session_changed";
-        runner.cancel();
+        cancellation.abort();
       };
       const watch = () => {
         try {
           guard();
         } catch {
-          runner.cancel();
+          cancellation.abort();
         }
       };
       try {
@@ -284,7 +290,7 @@ export async function scanNearbyTerrain(
       } catch {
         failure ??= "scan_interrupted";
         // Enter the controller's supported interrupted cleanup before restoring.
-        runner.cancel();
+        cancellation.abort();
         if (bot)
           for (const event of [
             "physicsTick",
@@ -335,7 +341,7 @@ export async function scanNearbyTerrain(
             );
       }
     },
-    options.signal,
+    signal,
   );
   if (
     action.code !== "ok" ||
