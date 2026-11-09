@@ -142,6 +142,44 @@ export async function collectObservedDirt(
   };
 }
 
+/** Trusted compiled collaborator only. The caller retains its authenticated
+ * reservation through collection and verification; no nested reservation. */
+const consumedCollectionScopes = new WeakSet<OperationScope>();
+export async function collectObservedDirtOwned(
+  context: ScanContext,
+  scope: OperationScope,
+  target: Target,
+): Promise<ObservedCollectionResult> {
+  const navigation: NavigationEvidence[] = [];
+  try {
+    operationCheckpoint(scope, context.readSession().bot);
+    if (consumedCollectionScopes.has(scope))
+      return {
+        code: "refused",
+        reason: "collection_scope_consumed",
+        steps: 0,
+        navigation: [],
+      };
+    consumedCollectionScopes.add(scope);
+    const result = await collectOwned(
+      context,
+      scope,
+      { ...target },
+      scope.signal,
+      navigation,
+    );
+    operationCheckpoint(scope, context.readSession().bot);
+    return { ...result, navigation: structuredClone(navigation) };
+  } catch {
+    return {
+      code: "refused",
+      reason: "invalid_or_expired_collection_scope",
+      steps: 0,
+      navigation: structuredClone(navigation),
+    };
+  }
+}
+
 async function collectOwned(
   context: ScanContext,
   runner: OperationScope,

@@ -4,6 +4,7 @@ import {
   operationCheckpoint,
   type ActionRunner,
   type ActionResult,
+  type OperationScope,
 } from "../actions/runner.js";
 import type { StationarySession } from "../perception/stationarity.js";
 import { stationaryState } from "../perception/stationarity.js";
@@ -81,8 +82,9 @@ function copyResult(result: ActionResult) {
 }
 
 /** Trusted application composition only. No injected observation or body port.
- * A reservation authenticates the real inspect/selection interval. Since the
- * current body cannot inherit it, request() deliberately refuses every handoff.
+ * A reservation authenticates the real inspect/selection interval. The
+ * standalone request() deliberately refuses handoff after release. The owned
+ * path consumes its private intent under the original authenticated scope.
  * Call dispose() when abandoning an intent; automatic expiry bounds monitoring.
  */
 export class TrustedInspectionTrial {
@@ -94,6 +96,8 @@ export class TrustedInspectionTrial {
   #check: (() => void) | undefined;
   #cleanup: (() => void) | undefined;
   #controller = new AbortController();
+  #owner: OperationScope | undefined;
+  #epoch: number | undefined;
 
   constructor(
     private readonly context: StationarySession,
@@ -111,6 +115,52 @@ export class TrustedInspectionTrial {
   }
 
   async prepare(outer?: AbortSignal): Promise<InspectionPreparation> {
+    return this.#prepare(outer);
+  }
+
+  /** Internal compiled episode path: the reservation remains owned by caller. */
+  async prepareOwned(scope: OperationScope): Promise<InspectionPreparation> {
+    try {
+      operationCheckpoint(scope, this.context.readSession().bot);
+    } catch {
+      const reason = this.#started
+        ? "trial_consumed"
+        : "invalid_inspection_scope";
+      this.#started = true;
+      return { code: "refused", reason };
+    }
+    return this.#prepare(scope.signal, scope);
+  }
+
+  /** Consume once, synchronously before body admission under the same scope. */
+  consumeOwned(intent: unknown, scope: OperationScope): Selection {
+    if (!this.#intent || intent !== this.#intent)
+      return { code: "refused", reason: "untrusted_intent" };
+    if (this.#used) return { code: "refused", reason: "intent_consumed" };
+    this.#used = true;
+    try {
+      this.#check?.();
+      if (
+        scope !== this.#owner ||
+        operationCheckpoint(scope, this.context.readSession().bot) !==
+          this.#epoch ||
+        !this.#selection
+      )
+        throw Error("invalid_scope");
+      return { ...this.#selection, target: { ...this.#selection.target } };
+    } catch {
+      return (
+        this.#failure ?? { code: "refused", reason: "invalid_selection_scope" }
+      );
+    } finally {
+      this.#cleanup?.();
+    }
+  }
+
+  async #prepare(
+    outer?: AbortSignal,
+    owner?: OperationScope,
+  ): Promise<InspectionPreparation> {
     if (this.#started) return { code: "refused", reason: "trial_consumed" };
     this.#started = true;
     const started = performance.now(),
@@ -210,58 +260,58 @@ export class TrustedInspectionTrial {
       };
       outer?.addEventListener("abort", abort, { once: true });
       check();
-      const outcome = await this.runner.runOperation(
-        1000,
-        async (scope) => {
-          operationCheckpoint(scope, bot); // Reject a runner belonging to another Bot.
-          check();
-          const result = await scope.run(
-            { type: "inspect", timeoutMs: 1000 },
-            signal,
-          );
-          check();
-          if (operationCheckpoint(scope, bot) !== 1)
-            throw Error("unexpected_action_history");
-          if (!result.ok || result.code !== "ok" || result.action !== "inspect")
-            return { code: "refused", reason: "inspection_failed" } as const;
-          const copy = copyResult(result);
-          for (const snapshot of [result.before, copy.after]) {
-            if (
-              !snapshot ||
-              snapshot.yaw !== initial.pose.yaw ||
-              snapshot.pitch !== initial.pose.pitch ||
-              snapshot.position.x !== initial.pose.position.x ||
-              snapshot.position.y !== initial.pose.position.y ||
-              snapshot.position.z !== initial.pose.position.z
-            )
-              throw Error("inspection_pose_mismatch");
-          }
-          // The epoch is scoped to this reservation; it never survives as authority.
-          const now = performance.now();
-          const selection = selectVisibleDirt(
-            {
-              source: "action-runner.inspect",
-              sessionId: session.sessionId,
-              dimension: initial.dimension,
-              revision: invalidations,
-              observedAt: started,
-              result: copy,
-            },
-            {
-              sessionId: session.sessionId,
-              dimension: initial.dimension,
-              revision: invalidations,
-              inspectionId: copy.id,
-              now,
-              deadline,
-              cancelled: signal.aborted,
-            },
-          );
-          check();
-          return selection;
-        },
-        signal,
-      );
+      const work = async (scope: OperationScope): Promise<Selection> => {
+        const epoch = operationCheckpoint(scope, bot); // Reject a runner belonging to another Bot.
+        check();
+        const result = await scope.run(
+          { type: "inspect", timeoutMs: 1000 },
+          signal,
+        );
+        check();
+        if (operationCheckpoint(scope, bot) !== epoch + 1)
+          throw Error("unexpected_action_history");
+        if (!result.ok || result.code !== "ok" || result.action !== "inspect")
+          return { code: "refused", reason: "inspection_failed" } as const;
+        const copy = copyResult(result);
+        for (const snapshot of [result.before, copy.after]) {
+          if (
+            !snapshot ||
+            snapshot.yaw !== initial.pose.yaw ||
+            snapshot.pitch !== initial.pose.pitch ||
+            snapshot.position.x !== initial.pose.position.x ||
+            snapshot.position.y !== initial.pose.position.y ||
+            snapshot.position.z !== initial.pose.position.z
+          )
+            throw Error("inspection_pose_mismatch");
+        }
+        // The epoch is scoped to this reservation; it never survives as authority.
+        const now = performance.now();
+        const selection = selectVisibleDirt(
+          {
+            source: "action-runner.inspect",
+            sessionId: session.sessionId,
+            dimension: initial.dimension,
+            revision: invalidations,
+            observedAt: started,
+            result: copy,
+          },
+          {
+            sessionId: session.sessionId,
+            dimension: initial.dimension,
+            revision: invalidations,
+            inspectionId: copy.id,
+            now,
+            deadline,
+            cancelled: signal.aborted,
+          },
+        );
+        check();
+        this.#epoch = operationCheckpoint(scope, bot);
+        return selection;
+      };
+      const outcome = owner
+        ? { code: "ok" as const, value: await work(owner) }
+        : await this.runner.runOperation(1000, work, signal);
       check();
       if (outcome.code !== "ok")
         return {
@@ -275,6 +325,7 @@ export class TrustedInspectionTrial {
       if (!selection) return { code: "refused", reason: "inspection_unknown" };
       if (selection.code !== "selected") return selection;
       this.#selection = { ...selection, target: { ...selection.target } };
+      this.#owner = owner;
       this.#intent = Object.freeze({}) as InspectionIntent;
       return {
         code: "selected",
