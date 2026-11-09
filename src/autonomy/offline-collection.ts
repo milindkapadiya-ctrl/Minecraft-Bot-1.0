@@ -1,5 +1,6 @@
 import type { Target } from "../actions/local.js";
 import { performance } from "node:perf_hooks";
+import { collectionMeasurement, retainedDirt } from "./collection-evidence.js";
 import type { ObservedCollectionResult } from "../integration/observed-collection.js";
 import {
   selectVisibleDirt,
@@ -25,11 +26,6 @@ export interface TrialResult {
   selection?: Selection;
   counts?: { before: number; after: number; retained: number };
 }
-const record = (v: unknown): v is Record<string, unknown> =>
-  !!v && typeof v === "object" && !Array.isArray(v);
-const count = (v: unknown): v is number =>
-  typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
-
 /** One observe/select/request/verify trial. It cannot retry or overlap itself,
  * even after cancellation/failure. Production entrypoints do not import it. */
 export class OfflineCollectionTrial {
@@ -121,65 +117,21 @@ export class OfflineCollectionTrial {
         return result("not_observed", "inventory_unchanged");
       if (body.code !== "inventory_increase_observed")
         return result("refused", "body_refused");
-      const collection = body.collection;
-      const evidence = {
-        item: collection.evidence.item,
-        status: collection.evidence.status,
-        beforeCount: collection.evidence.beforeCount,
-        afterCount: collection.evidence.afterCount,
-        delta: collection.evidence.delta,
-      };
-      if (
-        !count(body.steps) ||
-        body.steps > 3 ||
-        collection.code !== "inventory_increase_observed" ||
-        collection.digCode !== "ok" ||
-        (collection.movementCode !== undefined &&
-          collection.movementCode !== "ok") ||
-        evidence.status !== "inventory_increase_observed" ||
-        evidence.item !== "dirt" ||
-        !count(evidence.beforeCount) ||
-        !count(evidence.afterCount) ||
-        !count(evidence.delta) ||
-        evidence.delta <= 0 ||
-        evidence.afterCount - evidence.beforeCount !== evidence.delta
-      )
-        return result("refused", "unverified_body_evidence");
+      const measurement = collectionMeasurement(body);
+      if (!measurement) return result("refused", "unverified_body_evidence");
       const retained = await wait(() => this.ports.inventory(signal));
       if (sessionChanged()) return result("refused", "session_changed");
-      if (
-        !record(retained) ||
-        retained.action !== "inventory" ||
-        retained.ok !== true ||
-        retained.code !== "ok" ||
-        !record(retained.details) ||
-        !Array.isArray(retained.details.inventory) ||
-        retained.details.inventory.length > 128
-      )
+      const total = retainedDirt(retained);
+      if (total === undefined)
         return result("refused", "retained_inventory_unknown");
-      let total = 0;
-      const slots = new Set<number>();
-      for (const item of retained.details.inventory) {
-        if (
-          !record(item) ||
-          typeof item.name !== "string" ||
-          !item.name ||
-          !count(item.count) ||
-          !count(item.slot) ||
-          slots.has(item.slot)
-        )
-          return result("refused", "retained_inventory_unknown");
-        slots.add(item.slot);
-        if (item.name === "dirt") total += item.count;
-      }
-      if (!count(total) || total < evidence.afterCount)
+      if (total < measurement.after)
         return result("not_observed", "inventory_not_retained");
       checkpoint();
       return {
         ...result("verified", "measured_and_retained_dirt_increase"),
         counts: {
-          before: evidence.beforeCount,
-          after: evidence.afterCount,
+          before: measurement.before,
+          after: measurement.after,
           retained: total,
         },
       };
