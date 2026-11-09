@@ -1,5 +1,9 @@
 # Architecture and integration decision
 
+## Trusted inspection — offline partial boundary, 2026-11-09
+
+`TrustedInspectionTrial` performs genuine canonical inspect inside an authenticated operation, copies bounded result data privately, selects without exposing the Bot, and issues a single-use opaque diagnostic association. Delivered lifecycle/world changes and exact sampled pose changes invalidate it. The local counter is not a global world revision; missing/undelivered action history is not inferred. Every collection request refuses because `collectObservedDirt` cannot inherit the reservation. Production tests demonstrate nested-body busy and independent-action admission after release. No shared controller/scanner/body change or live activation was made. See the [pending scope-sharing design and evidence](workstreams/mcbot-autonomy-foundation-02.md). The previous simulated coordinator remains useful but is not authentic production admission.
+
 ## Autonomous visible selection — offline foundation, 2026-11-09
 
 `src/autonomy/visible-target.ts` adds a pure bounded dirt/grass selector over explicitly supplied canonical inspection results plus trusted caller provenance. It returns one copied intent or a structured refusal; distance ranking does not certify route or dig safety. `src/autonomy/offline-collection.ts` demonstrates one observe → select → existing-body-request → retained-inventory verification sequence using injected fake ports. It has no live adapter and is not imported by production entrypoints. This narrowly authorized deterministic foundation supersedes the historical body-only restriction for this component; strategic API/model work remains out of scope. See [contracts, simulations and limits](workstreams/mcbot-autonomy-foundation-01.md).
