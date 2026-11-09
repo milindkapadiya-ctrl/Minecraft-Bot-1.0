@@ -3,7 +3,8 @@ import type { ActionResult } from "../actions/runner.js";
 
 /** Trusted caller metadata, not a new visibility/admission capability. The caller
  * must bracket canonical inspect with an unchanged session/pose/world revision.
- * There is deliberately no live producer for this envelope in this milestone. */
+ * trusted-inspection.ts produces private envelopes within an operation; its
+ * local invalidation counter is not a global world revision or body authority. */
 export interface InspectionEnvelope {
   source: "action-runner.inspect";
   sessionId: string;
