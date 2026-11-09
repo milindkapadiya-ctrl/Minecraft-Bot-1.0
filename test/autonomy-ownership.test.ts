@@ -87,15 +87,23 @@ test("forged, foreign and revoked collection scopes cannot act", async () => {
         .code,
       "refused",
     );
-    await foreign.runner.runOperation(1000, async (scope) => {
-      assert.equal(
-        (await collectObservedDirtOwned(f.context, scope, target)).code,
-        "refused",
-      );
-    });
-    await f.runner.runOperation(1000, async (scope) => {
-      old = scope;
-    });
+    const foreignOperation = await foreign.runner.runOperation(
+      1000,
+      async (scope) => {
+        assert.equal(
+          (await collectObservedDirtOwned(f.context, scope, target)).code,
+          "refused",
+        );
+      },
+    );
+    assert.equal(foreignOperation.code, "ok");
+    const originalOperation = await f.runner.runOperation(
+      1000,
+      async (scope) => {
+        old = scope;
+      },
+    );
+    assert.equal(originalOperation.code, "ok");
     assert.equal(
       (await collectObservedDirtOwned(f.context, old, target)).code,
       "refused",
@@ -119,22 +127,34 @@ for (const action of [
     const trial = new TrustedInspectionTrial(f.context, f.runner);
     let intent: unknown, old!: OperationScope;
     try {
-      await f.runner.runOperation(1000, async (scope) => {
+      const operation = await f.runner.runOperation(1000, async (scope) => {
         old = scope;
         const p = await trial.prepareOwned(scope);
         if (p.code !== "selected") assert.fail();
         intent = p.intent;
         if (action === "inventory")
-          await scope.run({ type: "inventory", timeoutMs: 1000 });
+          assert.equal(
+            (await scope.run({ type: "inventory", timeoutMs: 1000 })).code,
+            "ok",
+          );
         if (action === "look_return") {
           const { yaw, pitch } = f.raw.entity;
-          await scope.run({
-            type: "look",
-            yaw: yaw + 0.1,
-            pitch,
-            timeoutMs: 1000,
-          });
-          await scope.run({ type: "look", yaw, pitch, timeoutMs: 1000 });
+          assert.equal(
+            (
+              await scope.run({
+                type: "look",
+                yaw: yaw + 0.1,
+                pitch,
+                timeoutMs: 1000,
+              })
+            ).code,
+            "ok",
+          );
+          assert.equal(
+            (await scope.run({ type: "look", yaw, pitch, timeoutMs: 1000 }))
+              .code,
+            "ok",
+          );
         }
         if (action !== "expired")
           assert.equal(
@@ -145,8 +165,9 @@ for (const action of [
             "refused",
           );
       });
+      assert.equal(operation.code, "ok");
       if (action === "expired")
-        assert.notEqual(trial.consumeOwned(intent, old).code, "selected");
+        assert.equal(trial.consumeOwned(intent, old).code, "cancelled");
       assert.equal(f.raw.digs, 0);
     } finally {
       trial.dispose();

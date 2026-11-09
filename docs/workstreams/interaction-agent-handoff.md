@@ -1,3 +1,5 @@
+**MILESTONE-03:** the approved owned collector and private scope-bound selection now compose a complete trusted offline episode. Up to three freshly inspected, independently verified episodes complete through actual production body functions in controlled fakes. No live activation. [Implementation, evidence and validation](mcbot-autonomy-milestone-03.md). Foundation-02’s pending ownership decision below is superseded.
+
 # Interaction body handoff for a future autonomous agent
 
 **FOUNDATION-02 offline update:** authentic reserved inspect and private single-use selection are implemented. The body request boundary refuses `ownership_transfer_unavailable`; the collector's own reservation prevents nesting, while release creates a proven action-admission gap. No full integration or production activation. [Pending shared-interface proposal, regression evidence and validation](mcbot-autonomy-foundation-02.md).

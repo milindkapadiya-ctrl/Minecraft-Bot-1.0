@@ -49,6 +49,12 @@ export class CollectionSequence {
       };
       const watch = () => {
         try {
+          if (
+            listeners.some(
+              (m) => !events!.listeners(m.event).includes(m.listener),
+            )
+          )
+            invalidate();
           const current = this.context.readSession();
           if (
             !current.active ||

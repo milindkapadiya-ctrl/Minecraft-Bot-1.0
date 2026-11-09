@@ -1,3 +1,5 @@
+**MCBOT-AUTONOMY-MILESTONE-03:** the user-approved internal owned collector closes Foundation-02’s reservation gap. `CollectionEpisode` composes owned inspection/selection, unchanged guarded collection, guarded view restoration and independent inventory inside one32s reservation; `CollectionSequence` performs at most three freshly observed, separately reserved episodes. Shared measurement validators reject uncertain success. Live entrypoints remain disconnected. [Current contract and evidence](workstreams/mcbot-autonomy-milestone-03.md). Earlier blocker descriptions below are historical.
+
 # Architecture and integration decision
 
 ## Trusted inspection — offline partial boundary, 2026-11-09

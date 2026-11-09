@@ -101,6 +101,7 @@ for (const change of [
   "cancel",
   "monitor",
   "final_cancel",
+  "final_blind_monitor",
 ] as const) {
   test(`sequence stops on ${change} between released episodes`, async () => {
     const raw = new ResourceCourseBot(),
@@ -125,6 +126,10 @@ for (const change of [
         if (change === "cancel" || change === "final_cancel")
           controller.abort();
         if (change === "monitor") raw.removeAllListeners("game");
+        if (change === "final_blind_monitor") {
+          raw.removeAllListeners("removeListener");
+          raw.removeAllListeners("game");
+        }
       }
     });
     const context = {
@@ -133,7 +138,7 @@ for (const change of [
     };
     try {
       const result = await new CollectionSequence(context, runner).run(
-        change === "final_cancel" ? 1 : 3,
+        change.startsWith("final_") ? 1 : 3,
         controller.signal,
       );
       assert.ok(triggered);
