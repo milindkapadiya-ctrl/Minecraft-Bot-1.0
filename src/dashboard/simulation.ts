@@ -1,33 +1,23 @@
+import type {
+  TaskService,
+  TaskStatus,
+  TaskKind,
+  TaskRecord,
+} from "./task-service.js";
+export type { TaskKind, TaskRecord } from "./task-service.js";
 import { randomUUID } from "node:crypto";
 import type { Bot } from "mineflayer";
 import { ActionRunner } from "../actions/runner.js";
 import { waitForSettledPose } from "../integration/wait-for-settled-pose.js";
-import {
-  CollectionSequence,
-  type SequenceRecord,
-} from "../autonomy/collection-sequence.js";
+import { CollectionSequence } from "../autonomy/collection-sequence.js";
 import {
   EvaluationBot,
   type FixtureSettings,
 } from "../../test/evaluation/fixture.js";
 
-export type TaskKind = "inspect" | "collect_one" | "collect_three";
-export interface TaskRecord {
-  id: string;
-  kind: TaskKind;
-  sessionId: string;
-  startedAt: string;
-  completedAt?: string;
-  outcome: string;
-  reason: string;
-  verified: number;
-  events: { sequence: number; at: string; action: string; state: string }[];
-  episodes: SequenceRecord["episodes"];
-  blocks: { name: string; target: { x: number; y: number; z: number } }[];
-}
 /** Offline composition only. Fixture configuration is compiled/test-owned,
  * never supplied by HTTP. There is no real connection factory here. */
-export class Simulation {
+export class Simulation implements TaskService {
   #raw: EvaluationBot;
   #runner: ActionRunner;
   #sessionId = randomUUID();
@@ -78,9 +68,10 @@ export class Simulation {
     });
     if (task.events.length > 100) task.events.shift();
   }
-  snapshot() {
+  snapshot(): TaskStatus {
     return structuredClone({
       mode: "SIMULATION",
+      capabilities: ["inspect", "collect_one", "collect_three"],
       revision: this.#sequence,
       sessionId: this.#sessionId,
       state: this.#closed

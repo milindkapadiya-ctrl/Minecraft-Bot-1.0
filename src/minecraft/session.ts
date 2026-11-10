@@ -32,6 +32,31 @@ interface SessionBinding {
   shutdownTimeoutMs: number;
 }
 const bindings = new WeakMap<object, () => SessionBinding>();
+export interface SessionActionEvent {
+  action: string;
+  state: string;
+}
+const actionObservers = new WeakMap<
+  object,
+  Set<(event: SessionActionEvent) => void>
+>();
+/** Internal read-only telemetry. Only a genuine handle can subscribe; no raw
+ * packets, bot objects, coordinates or action authority cross this boundary. */
+export function observeSessionActions(
+  handle: unknown,
+  listener: (event: SessionActionEvent) => void,
+) {
+  const observers =
+    typeof handle === "object" && handle !== null
+      ? actionObservers.get(handle)
+      : undefined;
+  if (!observers) return () => {};
+  if (observers.size >= 8) throw Error("observer_capacity");
+  observers.add(listener);
+  return () => {
+    observers.delete(listener);
+  };
+}
 /** Only handles minted by startSession resolve. Internal trusted composition,
  * not a network authentication claim or a raw controller creation API. */
 export function readSessionBinding(
@@ -73,6 +98,8 @@ export function startSession(
     resolveDone = resolve;
   });
   const handle: SessionHandle = Object.freeze({ stop, done });
+  const observers = new Set<(event: SessionActionEvent) => void>();
+  actionObservers.set(handle, observers);
   bindings.set(handle, () => ({
     bot,
     runner: actions,
@@ -111,6 +138,7 @@ export function startSession(
       releaseConnection = undefined;
     }
     log("disconnected", { ...outcome });
+    observers.clear();
     resolveDone(outcome);
   }
   function stop(reason = "requested", exitCode = 0) {
@@ -163,7 +191,28 @@ export function startSession(
     });
     if (controlMode === "prototype") {
       installControlOwnership(bot);
-      actions = new ActionRunner(bot, log);
+      actions = new ActionRunner(bot, (name, data = {}) => {
+        log(name, data);
+        if (name !== "action_started" && name !== "action_result") return;
+        const action =
+          name === "action_started"
+            ? (data.request as { type?: string } | undefined)?.type
+            : data.action;
+        const state =
+          name === "action_started"
+            ? "running"
+            : data.code === "ok"
+              ? "completed"
+              : data.code;
+        if (typeof action !== "string" || typeof state !== "string") return;
+        for (const observer of observers) {
+          try {
+            observer({ action, state });
+          } catch {
+            /* Telemetry cannot change execution. */
+          }
+        }
+      });
     } else if (controlMode === "legacy-surface")
       installControlOwnership(bot, true);
     else throw new Error("invalid_control_mode");

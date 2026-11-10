@@ -2,12 +2,19 @@ import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Simulation, type TaskKind } from "./simulation.js";
+import type { TaskService } from "./task-service.js";
 
 export async function startDashboard(
-  options: { host?: string; port?: number; simulation?: Simulation } = {},
+  options: {
+    host?: string;
+    port?: number;
+    service?: TaskService;
+    simulation?: Simulation;
+  } = {},
 ) {
   if (options.host !== undefined && options.host !== "127.0.0.1")
     throw Error("loopback_required");
+  if (options.service && options.simulation) throw Error("ambiguous_service");
   const token = randomBytes(32).toString("hex");
   let origin = "";
   const assets = new Map<string, { type: string; body: Buffer }>();
@@ -23,7 +30,7 @@ export async function startDashboard(
       ),
     });
   }
-  const simulation = options.simulation ?? new Simulation();
+  const simulation = options.service ?? options.simulation ?? new Simulation();
   const server = createServer(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -99,6 +106,11 @@ export async function startDashboard(
           typeof data.kind !== "string"
         )
           return send(400, { error: "invalid_payload" });
+        if (
+          !["inspect", "collect_one", "collect_three"].includes(data.kind) ||
+          !simulation.snapshot().capabilities.includes(data.kind as TaskKind)
+        )
+          return send(409, { error: "unsupported_task" });
         return send(202, simulation.start(data.id, data.kind as TaskKind));
       }
       if (req.url === "/api/cancel") {
@@ -108,6 +120,8 @@ export async function startDashboard(
         return send(202, { state: "cancellation_requested" });
       }
       if (keys !== "") return send(400, { error: "invalid_payload" });
+      if (!simulation.snapshot().canReset)
+        return send(409, { error: "reset_not_safe" });
       simulation.reset();
       send(200, simulation.snapshot());
     } catch (error) {
