@@ -1,4 +1,5 @@
 import { performance } from "node:perf_hooks";
+import { LatencyProbe } from "../../src/telemetry/latency.js";
 import type { Bot } from "mineflayer";
 import { ActionRunner, type OperationScope } from "../../src/actions/runner.js";
 import { CollectionEpisode } from "../../src/autonomy/collection-episode.js";
@@ -10,6 +11,7 @@ import { EvaluationBot } from "./fixture.js";
 import type { Scenario, Expected } from "./scenarios.js";
 
 export interface Evaluation {
+  profile?: ReturnType<LatencyProbe["snapshot"]> & { cpuMs: number };
   id: string;
   group: string;
   seed: number;
@@ -78,9 +80,12 @@ export function classify(
 export async function evaluate(
   scenario: Scenario,
   seed = 7,
+  profile = false,
 ): Promise<Evaluation> {
   const raw = new EvaluationBot(structuredClone(scenario.fixture), seed),
     bot = raw as unknown as Bot;
+  const probe = profile ? new LatencyProbe(bot) : undefined;
+  const cpuStart = process.cpuUsage();
   const abort = new AbortController();
   const session = { bot, sessionId: `eval:${scenario.id}`, active: true };
   const actions: Record<string, number> = {};
@@ -244,6 +249,10 @@ export async function evaluate(
   const baseline = new Map(
     raw.eventNames().map((e) => [e, raw.listenerCount(e)]),
   );
+  // The probe is disposed before the leak oracle; do not let its allowance
+  // conceal a leaked production physics listener.
+  if (probe)
+    baseline.set("physicsTick", (baseline.get("physicsTick") ?? 1) - 1);
   if (fault === "second_dig") raw.failDigNumber = 2;
   const cancelPickup = () => abort.abort();
   if (fault === "cancel_pickup") raw._client.on("block_change", cancelPickup);
@@ -305,8 +314,11 @@ export async function evaluate(
     clearTimeout(deadline);
     sequenceDone = true;
   }
+  const timings = probe?.snapshot();
+  const cpu = process.cpuUsage(cpuStart);
+  probe?.dispose();
   probing = true;
-  const probe = await runner.run({ type: "inventory", timeoutMs: 1000 });
+  const releaseProbe = await runner.run({ type: "inventory", timeoutMs: 1000 });
   // The diagnostic inventory probe is explicitly after the episode and cannot
   // count as its retention evidence or as a stale gameplay callback.
   const listenerLeak = raw
@@ -317,9 +329,10 @@ export async function evaluate(
   const cleanup =
     raw.controlState.forward ||
     listenerLeak ||
-    (probe.code !== "ok" && !(expectedClosure && probe.code === "closed"))
+    (releaseProbe.code !== "ok" &&
+      !(expectedClosure && releaseProbe.code === "closed"))
       ? "failed"
-      : probe.code === "closed"
+      : releaseProbe.code === "closed"
         ? "closed"
         : "released";
   raw.off("removeListener", betweenListener);
@@ -338,6 +351,9 @@ export async function evaluate(
           ? "cancelled"
           : "refused";
   const summary: Omit<Evaluation, "violations"> = {
+    ...(timings
+      ? { profile: { ...timings, cpuMs: (cpu.user + cpu.system) / 1000 } }
+      : {}),
     id: scenario.id,
     group: scenario.group,
     seed,

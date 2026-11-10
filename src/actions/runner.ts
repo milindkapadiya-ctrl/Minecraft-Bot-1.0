@@ -9,6 +9,11 @@ import { prepareWalk, WalkMotion } from "./walk-to.js";
 import type { Bot } from "mineflayer";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
+import {
+  measured,
+  measuredPromise,
+  latencySpan,
+} from "../telemetry/latency.js";
 import type { EventEmitter } from "node:events";
 import type { Log } from "../telemetry/logger.js";
 import { prepareFlat, FlatApproachMotion } from "./flat-approach.js";
@@ -518,7 +523,14 @@ export class ActionRunner {
     const pending = new Promise<ActionResult>((resolve) => {
       const cancellation = new AbortController();
       const ownedLook = (yaw: number, pitch: number) =>
-        ownership.within(() => this.bot.look(yaw, pitch, true));
+        measuredPromise(this.bot, "camera", () =>
+          ownership.within(() => this.bot.look(yaw, pitch, true)),
+        );
+      const finishWalk =
+        action.type === "walk_to"
+          ? latencySpan(this.bot, "walk_action")
+          : () => {};
+      let finishCleanup = () => {};
       let ended = false;
       let finalized = false;
       let workPending = false;
@@ -629,6 +641,8 @@ export class ActionRunner {
         ownership.release();
         if (this.closed) closeControls(this.bot);
         this.active = undefined;
+        finishCleanup();
+        finishWalk();
         const r = result(completionCode);
         this.log("action_result", { ...r, request: action });
         resolve(r);
@@ -643,6 +657,8 @@ export class ActionRunner {
           return;
         }
         ended = true;
+        if (step instanceof WalkMotion) step.diagnosticStop();
+        finishCleanup = latencySpan(this.bot, "cleanup");
         completionCode =
           code === "ok" && performance.now() - started >= action.timeoutMs
             ? "timeout"
@@ -869,7 +885,9 @@ export class ActionRunner {
             });
         } else if (action.type === "inspect" || action.type === "inventory") {
           details[action.type === "inspect" ? "blocks" : "inventory"] =
-            action.type === "inspect" ? inspect(this.bot) : inventory(this.bot);
+            action.type === "inspect"
+              ? measured(this.bot, "inspection", () => inspect(this.bot))
+              : measured(this.bot, "inventory", () => inventory(this.bot));
           finish("ok");
         } else if (action.type === "walk_to") {
           const plan = prepareWalk(this.bot, action.target, details);

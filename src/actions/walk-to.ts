@@ -1,4 +1,5 @@
 import type { Bot } from "mineflayer";
+import { latencySpan, latencyValue, measured } from "../telemetry/latency.js";
 import { eyeHeight, targetBlock, visibleRay, type Target } from "./local.js";
 import { support, clear, vector } from "./step-up.js";
 export interface WalkPlan {
@@ -31,6 +32,13 @@ export function walkTerrain(
   return true;
 }
 export function prepareWalk(
+  bot: Bot,
+  target: Target,
+  details: Record<string, unknown>,
+): WalkPlan | null {
+  return measured(bot, "movement_prepare", () => prepare(bot, target, details));
+}
+function prepare(
   bot: Bot,
   target: Target,
   details: Record<string, unknown>,
@@ -77,6 +85,14 @@ export function prepareWalk(
 }
 /** One forward leg and passive braking, never a correction loop. */
 export class WalkMotion {
+  private finishPropulsion = () => {};
+  private finishBraking = () => {};
+  private finishArrival = () => {};
+  diagnosticStop() {
+    this.finishPropulsion();
+    this.finishBraking();
+    this.finishArrival();
+  }
   private braking = false;
   private stableSince: number | undefined;
   private stableTick = 0;
@@ -90,6 +106,7 @@ export class WalkMotion {
     this.origin = bot.entity.position.clone();
   }
   start(now: number) {
+    this.finishPropulsion = latencySpan(this.bot, "propulsion");
     this.started = now;
     this.details.phase = "walking";
     this.bot.setControlState("forward", true);
@@ -110,6 +127,7 @@ export class WalkMotion {
     );
     const speed = Math.hypot(bot.entity.velocity.x, bot.entity.velocity.z);
     details.remainingDistance = 1 - along;
+    latencyValue(bot, "walk_sample", 1 - along);
     details.horizontalSpeed = speed;
     if (
       !bot.entity.onGround ||
@@ -125,11 +143,14 @@ export class WalkMotion {
     // 2.2 approximates that sum; 0.10 anticipates discrete tick crossing.
     if (!this.braking && 1 - along <= Math.max(0.08, speed * 2.2 + 0.1)) {
       this.braking = true;
+      this.finishPropulsion();
+      this.finishBraking = latencySpan(bot, "braking");
       bot.clearControlStates();
       details.phase = "settling";
     }
     if (this.braking && speed < 0.01) {
       if (this.stableSince === undefined) {
+        this.finishArrival = latencySpan(bot, "arrival_window");
         this.stableSince = now;
         this.stableTick = ticks;
       }
@@ -147,6 +168,7 @@ export class WalkMotion {
         return "ok";
       }
     } else {
+      this.finishArrival();
       this.stableSince = undefined;
       details.stableMs = 0;
     }

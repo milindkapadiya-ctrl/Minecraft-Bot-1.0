@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto";
+import {
+  latencySpan,
+  measured,
+  type LatencyPhase,
+} from "../telemetry/latency.js";
 import type { PhysicsDiagnosticTrace } from "./physics-diagnostic-trace.js";
 import { performance } from "node:perf_hooks";
 import type { ActionRunner, ExclusiveContext } from "../actions/runner.js";
@@ -91,6 +96,7 @@ export async function scanNearbyTerrain(
     failure ??= code;
     throw new Error("scan_refused");
   };
+  let finishScan = () => {};
   const action = await runner.runExclusive(
     5000,
     async (scope) => {
@@ -155,6 +161,7 @@ export async function scanNearbyTerrain(
           refuse("invalid_orientation");
         const session = context.readSession();
         bot = session.bot;
+        finishScan = latencySpan(bot, "scan");
         originBot = bot;
         sessionId = session.sessionId;
         expected = { yaw: initial.pose.yaw, pitch: initial.pose.pitch };
@@ -222,15 +229,17 @@ export async function scanNearbyTerrain(
                 options.diagnosticTrace?.mark("view_ready", "ready", i);
                 guard();
                 const viewId = `${scanId}:${i}`;
-                const capture = scope.observe(() =>
-                  captureView(
-                    {
-                      ...context,
-                      readSession: () => context.readSession(),
-                      stationarity: receipt,
-                    },
-                    { scanId, viewId },
-                    { now, observe: options.observe ?? observeNearbyTerrain },
+                const capture = measured(bot!, "capture", () =>
+                  scope.observe(() =>
+                    captureView(
+                      {
+                        ...context,
+                        readSession: () => context.readSession(),
+                        stationarity: receipt,
+                      },
+                      { scanId, viewId },
+                      { now, observe: options.observe ?? observeNearbyTerrain },
+                    ),
                   ),
                 );
                 if (!capture.ok) {
@@ -251,6 +260,7 @@ export async function scanNearbyTerrain(
                   },
                 };
               },
+              i === 0 ? "initial_readiness" : "receipt_wait",
             );
           } catch (error) {
             options.diagnosticTrace?.mark(
@@ -268,7 +278,9 @@ export async function scanNearbyTerrain(
             readiness: acquired.readiness,
           });
         }
-        const observation = scope.observe(() => mergeObservations(views));
+        const observation = measured(bot, "merge", () =>
+          scope.observe(() => mergeObservations(views)),
+        );
         if (
           !observation.ok ||
           observation.views.length !== 3 ||
@@ -366,6 +378,7 @@ export async function scanNearbyTerrain(
     },
     signal,
   );
+  finishScan();
   if (
     action.code !== "ok" ||
     action.details?.cleanup !== "complete" ||
@@ -427,9 +440,11 @@ function captureAtReceipt<T>(
   guard: () => unknown,
   refuse: (code: string) => never,
   capture: (receipt: StationaryEvidence) => T,
+  phase: LatencyPhase,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const bot = context.readSession().bot;
+    const finishWait = latencySpan(bot, phase);
     const started = now();
     if (!Number.isSafeInteger(started) || started < 0) refuse("invalid_time");
     let last = -Infinity;
@@ -445,6 +460,7 @@ function captureAtReceipt<T>(
       signal: scope.signal,
     });
     const cleanup = () => {
+      finishWait();
       clearTimeout(timer);
       bot.off("physicsTick", tick);
       scope.signal.removeEventListener("abort", abort);
@@ -459,6 +475,7 @@ function captureAtReceipt<T>(
     const finish = (error?: unknown) => {
       if (finished) return;
       finished = true;
+      finishWait();
       clearTimeout(timer);
       bot.off("physicsTick", tick);
       scope.signal.removeEventListener("abort", abort);

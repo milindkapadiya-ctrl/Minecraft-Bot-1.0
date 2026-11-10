@@ -1,4 +1,6 @@
+import { waitForSettledPose } from "./wait-for-settled-pose.js";
 import { performance } from "node:perf_hooks";
+import { latencySpan, measuredPromise } from "../telemetry/latency.js";
 import type { EventEmitter } from "node:events";
 import type { Bot } from "mineflayer";
 import {
@@ -20,10 +22,7 @@ import type {
   ScanContext,
   ScanResult,
 } from "../perception/scan-nearby-terrain.js";
-import {
-  collectStationarity,
-  stationaryState,
-} from "../perception/stationarity.js";
+import { stationaryState } from "../perception/stationarity.js";
 import { VisibleWalkPort } from "./visible-walk-port.js";
 import { ObservationBatch } from "./observation-batch.js";
 
@@ -83,28 +82,6 @@ const adjacent = (standing: Position, target: Target) =>
   standing.y === target.y + 1 &&
   Math.abs(standing.x - target.x) + Math.abs(standing.z - target.z) === 1;
 export { nextFlatWaypoint } from "./waypoint-decision.js";
-
-/** A successful walk may still coast below the walk primitive's speed limit.
- * Wait for the scanner's exact unchanged-pose evidence before starting the
- * next camera batch; an aborted or unsteady arrival cannot grant authority.
- */
-async function waitForSettledPose(
-  context: ScanContext,
-  signal: AbortSignal,
-  maxMs: number,
-): Promise<boolean> {
-  const collector = collectStationarity(context, { signal });
-  try {
-    const deadline = performance.now() + maxMs;
-    while (!signal.aborted && performance.now() < deadline) {
-      if (collector.evidence()) return true;
-      await new Promise<void>((resolve) => setTimeout(resolve, 25));
-    }
-    return false;
-  } finally {
-    collector.dispose();
-  }
-}
 
 /** Trusted composition: one visible target, direct scanner, fresh guarded
  * movement on each flat segment, and the existing inventory-verified dig.
@@ -291,6 +268,7 @@ async function collectOwned(
   bot.on("physicsTick", checkSession);
   bot.on("game", checkSession);
   events.on("removeListener", removed);
+  let finishWaypoint = () => {};
   try {
     const deadline = performance.now() + 20000;
     for (let attempt = 0; attempt <= 3; attempt++) {
@@ -346,6 +324,7 @@ async function collectOwned(
       }
       if (attempt === 3) return fail("waypoint_limit");
       const batch = new ObservationBatch(context, runner, controller.signal);
+      finishWaypoint = latencySpan(bot, "waypoint");
       const evidence: NavigationEvidence = {
         scans: 0,
         decisions: 0,
@@ -485,18 +464,22 @@ async function collectOwned(
         usedSideStep = true;
       steps++;
       if (
-        !(await waitForSettledPose(
-          context,
-          controller.signal,
-          Math.min(1200, Math.max(0, deadline - performance.now())),
+        !(await measuredPromise(bot, "post_move_settle", () =>
+          waitForSettledPose(
+            context,
+            controller.signal,
+            Math.min(1200, Math.max(0, deadline - performance.now())),
+          ),
         ))
       )
         return fail("arrival_not_settled");
       evidence.arrival = true;
+      finishWaypoint();
       // The scan was consumed by WALK1. Loop obtains a new batch before WALK2.
     }
     return fail("waypoint_limit");
   } finally {
+    finishWaypoint();
     monitoring = false;
     clearTimeout(timer);
     signal?.removeEventListener("abort", cancel);

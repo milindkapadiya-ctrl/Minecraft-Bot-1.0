@@ -1,4 +1,5 @@
 import type { EventEmitter } from "node:events";
+import { latencySpan } from "../telemetry/latency.js";
 import { operationCheckpoint, type ActionRunner } from "../actions/runner.js";
 import type { ScanContext } from "../perception/scan-nearby-terrain.js";
 import { collectObservedDirtOwned } from "../integration/observed-collection.js";
@@ -57,10 +58,12 @@ export class CollectionEpisode {
     let disposed = false,
       invalidated = false;
     let bodyHandoff = false;
+    let finishEpisode = () => {};
     const inspection = new TrustedInspectionTrial(this.context, this.runner);
     try {
       const initial = { ...this.context.readSession() },
         bot = initial.bot;
+      finishEpisode = latencySpan(bot, "episode");
       const entity = bot.entity,
         dimension = bot.game.dimension;
       const view = { yaw: entity.yaw, pitch: entity.pitch };
@@ -254,6 +257,7 @@ export class CollectionEpisode {
         : "episode_unavailable";
       return structuredClone(record);
     } finally {
+      finishEpisode();
       disposed = true;
       inspection.dispose();
       for (const m of listeners) events?.off(m.event, m.listener);

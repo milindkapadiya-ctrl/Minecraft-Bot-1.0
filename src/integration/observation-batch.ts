@@ -1,4 +1,5 @@
 import { performance } from "node:perf_hooks";
+import { measured } from "../telemetry/latency.js";
 import type { EventEmitter } from "node:events";
 import {
   operationCheckpoint,
@@ -343,7 +344,9 @@ export class ObservationBatch {
       )
     )
       return null;
-    const decision = selectWaypoint(this.#cells, structuredClone(request));
+    const decision = measured(this.#session.bot, "waypoint_decision", () =>
+      selectWaypoint(this.#cells, structuredClone(request)),
+    );
     this.#evaluations = decision.evaluations;
     this.#guard(owner);
     return decision.waypoint;
