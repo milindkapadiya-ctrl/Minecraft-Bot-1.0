@@ -201,6 +201,13 @@ export async function collectNearbyDirt(
       dig.code,
       "cannot_inspect_exposed_floor",
     );
+  const afterView = stopped(dig.code);
+  if (afterView) return afterView;
+  // Pickup can arrive while the exposed-floor observation completes. Once
+  // the confirmed dig has a measured increase, no descent is needed; unknown
+  // landing terrain must not discard that already observed pickup.
+  if (evidence(true).status === "inventory_increase_observed")
+    return outcome("inventory_increase_observed", dig.code);
   const blocks = view.details?.blocks;
   const floor = Array.isArray(blocks)
     ? (
