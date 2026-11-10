@@ -1,3 +1,5 @@
+**MCBOT-AUTONOMY-MILESTONE-04:** offline EvaluationBot scenarios drive the existing owned episode/sequence through genuine observation and guarded body logic; fixture truth is not supplied as planning authority. Collection rechecks cancellation and inventory after floor inspection before deciding whether descent is needed. No controller, scanner, public contract or production entrypoint activation changed. [Evaluation contract](autonomy-evaluation.md) and [findings/readiness](workstreams/mcbot-autonomy-milestone-04.md).
+
 **MCBOT-AUTONOMY-MILESTONE-03:** the user-approved internal owned collector closes Foundation-02’s reservation gap. `CollectionEpisode` composes owned inspection/selection, unchanged guarded collection, guarded view restoration and independent inventory inside one32s reservation; `CollectionSequence` performs at most three freshly observed, separately reserved episodes. Shared measurement validators reject uncertain success. Live entrypoints remain disconnected. [Current contract and evidence](workstreams/mcbot-autonomy-milestone-03.md). Earlier blocker descriptions below are historical.
 
 # Architecture and integration decision
