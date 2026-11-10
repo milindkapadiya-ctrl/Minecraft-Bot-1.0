@@ -61,7 +61,16 @@ export class RealTaskService implements TaskService {
     const binding = readSessionBinding(this.handle);
     const last = this.#history[0];
     const retained = last?.pilot?.episode?.counts?.retained;
+    const readinessProblem = this.#closed
+      ? "session_closed"
+      : this.#used
+        ? "attempt_consumed"
+        : this.#adapter.preflight();
     return structuredClone({
+      readiness: {
+        eligible: !readinessProblem,
+        reason: readinessProblem ?? null,
+      },
       mode: "REAL_MINECRAFT_PREPARED",
       capabilities: ["collect_one"],
       revision: this.#revision,
@@ -76,7 +85,7 @@ export class RealTaskService implements TaskService {
               : "running"
             : this.#used
               ? "attempt_consumed"
-              : this.#adapter.preflight()
+              : readinessProblem
                 ? "not_ready"
                 : "ready",
       controller: binding?.runner?.admissionState() ?? "closed",

@@ -52,6 +52,9 @@ const outcomes = {
 function render(snapshot) {
   if (state && snapshot.revision < state.revision) return;
   state = snapshot;
+  $("readiness").textContent = snapshot.readiness
+    ? JSON.stringify(snapshot.readiness, null, 2)
+    : "Simulation status; no live readiness claim.";
   $("mode").textContent =
     snapshot.mode === "SIMULATION"
       ? "SIMULATION MODE"

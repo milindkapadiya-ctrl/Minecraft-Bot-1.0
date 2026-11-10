@@ -33,6 +33,7 @@ export class LiveDashboardSession implements TaskService {
   readonly #actions: Record<string, unknown>[] = [];
   readonly #actionCounts: Record<string, number> = {};
   #droppedActionEvents = 0;
+  readonly #readinessHistory: { at: string; reason: string | null }[] = [];
   constructor(
     config: Config,
     private readonly ledger: LiveLedger,
@@ -119,9 +120,21 @@ export class LiveDashboardSession implements TaskService {
     this.#timer = setInterval(() => {
       if (this.#closing || this.#submitted) return;
       try {
+        const status = this.#inner?.snapshot();
+        const reason =
+          status?.readiness?.reason ??
+          (status?.readiness?.eligible ? null : "awaiting_session");
+        if (
+          !this.#readinessHistory.length ||
+          this.#readinessHistory.at(-1)?.reason !== reason
+        ) {
+          this.#readinessHistory.push({ at: new Date().toISOString(), reason });
+          if (this.#readinessHistory.length > 20)
+            this.#readinessHistory.shift();
+        }
         if (
           this.#viewReady &&
-          this.#inner?.snapshot().state === "ready" &&
+          status?.state === "ready" &&
           this.#readyAt === undefined
         ) {
           const binding = readSessionBinding(this.#session)!;
@@ -193,6 +206,7 @@ export class LiveDashboardSession implements TaskService {
     const s = this.#inner?.snapshot();
     const binding = readSessionBinding(this.#session);
     return structuredClone({
+      ...(s?.readiness ? { readiness: s.readiness } : {}),
       mode: "REAL_MINECRAFT",
       capabilities: ["collect_one"],
       revision: this.#revision + (s?.revision ?? 0),
@@ -292,6 +306,7 @@ export class LiveDashboardSession implements TaskService {
       actions: structuredClone(this.#actions),
       actionCounts: { ...this.#actionCounts },
       droppedActionEvents: this.#droppedActionEvents,
+      readinessHistory: structuredClone(this.#readinessHistory),
     };
   }
 }

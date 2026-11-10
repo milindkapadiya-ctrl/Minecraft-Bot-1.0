@@ -262,6 +262,12 @@ for (const fault of [
           } else service.start(id, "collect_one");
         }
         await service.done;
+        if (fault === "missing_air")
+          assert.ok(
+            service
+              .result()
+              .readinessHistory.some((e) => e.reason === "own_air_not_ready"),
+          );
         assert.equal(
           service.snapshot().verified,
           0,
