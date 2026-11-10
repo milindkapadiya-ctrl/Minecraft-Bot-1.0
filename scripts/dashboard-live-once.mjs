@@ -1,5 +1,5 @@
 // Only this reviewed source literal activates the single fixed authorization.
-const LIVE_DASHBOARD_ACTIVATION_ENABLED = false;
+const LIVE_DASHBOARD_ACTIVATION_ENABLED = true;
 if (!LIVE_DASHBOARD_ACTIVATION_ENABLED) {
   console.error(
     "Real dashboard is disabled. No world/session attempt was claimed.",
