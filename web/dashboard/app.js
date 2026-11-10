@@ -55,12 +55,37 @@ function render(snapshot) {
   $("mode").textContent =
     snapshot.mode === "SIMULATION"
       ? "SIMULATION MODE"
-      : "REAL BRIDGE · PREPARED ONLY";
+      : snapshot.mode === "REAL_MINECRAFT"
+        ? "REAL MINECRAFT · ONE ATTEMPT"
+        : "REAL BRIDGE · PREPARED ONLY";
   $("mode-description").textContent =
     snapshot.mode === "SIMULATION"
       ? "Inspect the course, collect dirt, and follow each guarded action. This is controlled fake physics and resources; no Minecraft client is connected."
-      : "Internal trusted-session rehearsal. Live Minecraft is not activated by this dashboard. Only one separately admitted collection is supported; reset is unavailable.";
-  $("state").textContent = readable(snapshot.state);
+      : snapshot.mode === "REAL_MINECRAFT"
+        ? "This dedicated connection controls an actual Survival bot. You may submit one collection task. The world/session authorization is already consumed; failure does not permit a retry."
+        : "Internal trusted-session rehearsal. Live Minecraft is not activated by this dashboard. Only one separately admitted collection is supported; reset is unavailable.";
+  $("real-mode-title").textContent =
+    snapshot.mode === "REAL_MINECRAFT"
+      ? "REAL MINECRAFT — SINGLE AUTHORIZED SESSION"
+      : "REAL MINECRAFT MODE — NOT YET ACTIVATED";
+  $("real-mode-note").textContent =
+    snapshot.mode === "REAL_MINECRAFT"
+      ? "Wait for genuine readiness, then click Collect one dirt block once. Cancellation is available during work. No reset, extra episode or reconnect is permitted; the session closes after the result."
+      : "The trusted single-collection bridge requires separately authorized activation. Normal launches use simulation; no recording software is required for technical collection.";
+  const liveStates = {
+    ready: "Ready for one approved task",
+    connecting: "Connecting",
+    connected_not_ready: "Connected · not ready",
+    running: "Working",
+    stopping: "Cancellation requested",
+    cleaning_up: "Cleaning up",
+    disconnected: "Disconnected",
+    cleanup_uncertain: "Cleanup uncertain",
+  };
+  $("state").textContent =
+    snapshot.mode === "REAL_MINECRAFT"
+      ? (liveStates[snapshot.state] ?? readable(snapshot.state))
+      : readable(snapshot.state);
   $("controller").textContent = readable(snapshot.controller);
   $("verified").textContent = String(snapshot.verified);
   $("inventory").textContent = snapshot.inventory.length
@@ -76,7 +101,8 @@ function render(snapshot) {
     pending ||
     connectionLost ||
     !snapshot.active ||
-    snapshot.state === "stopping";
+    snapshot.state === "stopping" ||
+    snapshot.state === "cleaning_up";
   $("reset").disabled = pending || connectionLost || !snapshot.canReset;
   const task = snapshot.active ?? snapshot.history[0];
   $("task-title").textContent = task ? labels[task.kind] : "Ready when you are";
@@ -101,7 +127,9 @@ function render(snapshot) {
         ? "Task result received. Confirming cleanup and a settled bot before releasing controls."
         : task
           ? (outcomes[task.outcome] ?? readable(task.outcome))
-          : "Choose a task to begin.";
+          : snapshot.state === "ready"
+            ? "Choose a task to begin."
+            : "No task is available. Wait for readiness or review the session outcome.";
   $("timeline").replaceChildren();
   for (const event of task?.events ?? []) {
     const li = document.createElement("li");

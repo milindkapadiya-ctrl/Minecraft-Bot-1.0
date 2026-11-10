@@ -157,4 +157,14 @@ test("frontend maps controls, blocks duplicate clicks, rejects old status and ne
   assert.equal(buttons[2]!.disabled, true);
   assert.equal(byId("reset").disabled, true);
   assert.match(byId("mode-description").textContent, /not activated/);
+  runInNewContext(
+    'render({...state,revision:21,mode:"REAL_MINECRAFT",state:"connected_not_ready"});',
+    context,
+  );
+  assert.match(byId("mode").textContent, /REAL MINECRAFT/);
+  assert.ok(buttons.every((b) => b.disabled));
+  assert.match(byId("real-mode-note").textContent, /once/);
+  runInNewContext('render({...state,revision:22,state:"ready"});', context);
+  assert.equal(buttons[1]!.disabled, false);
+  assert.match(byId("state").textContent, /one approved task/);
 });

@@ -1,7 +1,7 @@
 import type { SequenceRecord } from "../autonomy/collection-sequence.js";
 import type { PilotRecord } from "../autonomy/pilot-evidence.js";
 export interface TaskStatus {
-  mode: "SIMULATION" | "REAL_MINECRAFT_PREPARED";
+  mode: "SIMULATION" | "REAL_MINECRAFT_PREPARED" | "REAL_MINECRAFT";
   capabilities: TaskKind[];
   revision: number;
   sessionId: string;
