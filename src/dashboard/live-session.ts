@@ -15,6 +15,12 @@ import type { TaskService, TaskStatus, TaskKind } from "./task-service.js";
  * Only an HTTP/operator task request can start collection. */
 export class LiveDashboardSession implements TaskService {
   readonly #session: SessionHandle;
+  readonly #connection: {
+    host: string;
+    port: number;
+    username: string;
+    version: string;
+  };
   #inner: RealTaskService | undefined;
   #submitted = false;
   #closing: Promise<void> | undefined;
@@ -54,6 +60,12 @@ export class LiveDashboardSession implements TaskService {
       limits.operatorMs > 300000
     )
       throw Error("invalid_live_configuration");
+    this.#connection = {
+      host: config.host,
+      port: config.port,
+      username: config.username,
+      version: config.version,
+    };
     ledger.advance("session_claimed", {
       host: config.host,
       port: config.port,
@@ -208,6 +220,33 @@ export class LiveDashboardSession implements TaskService {
     return structuredClone({
       ...(s?.readiness ? { readiness: s.readiness } : {}),
       mode: "REAL_MINECRAFT",
+      connection: {
+        ...this.#connection,
+        connected: binding?.active === true,
+        survival:
+          binding?.active === true && binding.bot.game.gameMode === "survival",
+      },
+      ...(binding?.active && Number.isFinite(binding.bot.health)
+        ? {
+            player: {
+              health: binding.bot.health,
+              observedAt: new Date().toISOString(),
+              ...([
+                binding.bot.entity.position.x,
+                binding.bot.entity.position.y,
+                binding.bot.entity.position.z,
+              ].every(Number.isFinite)
+                ? {
+                    position: {
+                      x: binding.bot.entity.position.x,
+                      y: binding.bot.entity.position.y,
+                      z: binding.bot.entity.position.z,
+                    },
+                  }
+                : {}),
+            },
+          }
+        : {}),
       capabilities: ["collect_one"],
       revision: this.#revision + (s?.revision ?? 0),
       sessionId: binding?.sessionId ?? "connecting",

@@ -3,6 +3,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Simulation, type TaskKind } from "./simulation.js";
 import type { TaskService } from "./task-service.js";
+import { simulationTasks } from "./task-service.js";
 
 export async function startDashboard(
   options: {
@@ -101,17 +102,30 @@ export async function startDashboard(
       const keys = Object.keys(data).sort().join(",");
       if (req.url === "/api/tasks") {
         if (
-          keys !== "id,kind" ||
+          keys !==
+            (data.kind === "dig_selected"
+              ? "id,kind,selectionId"
+              : "id,kind") ||
           typeof data.id !== "string" ||
-          typeof data.kind !== "string"
+          typeof data.kind !== "string" ||
+          (data.kind === "dig_selected" &&
+            (typeof data.selectionId !== "string" ||
+              !/^[a-f0-9-]{36}$/.test(data.selectionId)))
         )
           return send(400, { error: "invalid_payload" });
         if (
-          !["inspect", "collect_one", "collect_three"].includes(data.kind) ||
+          !simulationTasks.includes(data.kind as TaskKind) ||
           !simulation.snapshot().capabilities.includes(data.kind as TaskKind)
         )
           return send(409, { error: "unsupported_task" });
-        return send(202, simulation.start(data.id, data.kind as TaskKind));
+        return send(
+          202,
+          simulation.start(
+            data.id,
+            data.kind as TaskKind,
+            data.selectionId as string | undefined,
+          ),
+        );
       }
       if (req.url === "/api/cancel") {
         if (keys !== "id" || typeof data.id !== "string")

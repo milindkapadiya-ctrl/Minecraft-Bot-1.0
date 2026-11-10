@@ -72,6 +72,54 @@ function connect(
   );
 }
 
+test("delayed own air and camera startup become ready without extending freshness; trusted connection metadata", async () => {
+  const l = ledger();
+  l.advance("server_ready");
+  const raw = new PilotBot({ resources: [{ x: 1, z: 0 }], pitch: 0 }, 7);
+  raw.health = NaN;
+  const service = connect(l, raw, false);
+  try {
+    await new Promise((r) => setTimeout(r, 850));
+    assert.equal(service.snapshot().state, "connected_not_ready");
+    assert.equal(service.snapshot().readiness?.reason, "own_air_not_ready");
+    raw._client.emit("entity_metadata", {
+      entityId: raw.entity.id,
+      metadata: [{ key: 1, type: "int", value: 300 }],
+    });
+    await ready(service);
+    assert.deepEqual(service.snapshot().connection, {
+      connected: true,
+      host: config.host,
+      port: config.port,
+      username: config.username,
+      version: config.version,
+      survival: true,
+    });
+    assert.equal(service.snapshot().player?.health, 20);
+    for (const kind of [
+      "inventory",
+      "look_left",
+      "look_right",
+      "look_up",
+      "look_down",
+      "inspect",
+      "dig_selected",
+      "collect_three",
+    ] as const)
+      assert.throws(
+        () => service.start(randomUUID(), kind),
+        /unsupported_task/,
+      );
+    assert.equal(service.result().taskSubmitted, false);
+    await service.close();
+    assert.equal(service.snapshot().connection?.connected, false);
+    assert.equal(service.snapshot().player, undefined);
+  } finally {
+    await service.close();
+    raw.disposeFixture();
+  }
+});
+
 test("live ledger consumes partial setup and refuses replay or reordered admission", () => {
   const l = ledger();
   assert.throws(() => LiveLedger.claim(l.root, l.id, {}));
