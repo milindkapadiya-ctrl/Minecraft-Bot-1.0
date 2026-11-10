@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Minecraft Bot Control Center</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <span class="mark" aria-hidden="true">▦</span>
+      <div>
+        <small>YOUR LOCAL EXPEDITION DESK</small>
+        <h1>Minecraft Bot Control Center</h1>
+      </div>
+      <strong class="badge">SIMULATION</strong>
+    </header>
+    <main>
+      <section class="hero">
+        <div>
+          <small>SAFE TO EXPLORE</small>
+          <h2>A small world.<br />A real working bot.</h2>
+          <p>
+            Inspect the course, collect dirt, and follow each guarded action.
+            Everything here runs in a controlled simulation. No Minecraft client
+            is connected.
+          </p>
+        </div>
+        <div class="world" aria-hidden="true">
+          <span>▰</span><span>▰</span><span>▰</span>
+        </div>
+      </section>
+      <p id="error" role="alert" hidden></p>
+      <section class="metrics" aria-label="Simulation overview">
+        <article>
+          <small>SESSION</small><strong id="state">Connecting…</strong>
+        </article>
+        <article>
+          <small>VERIFIED COLLECTIONS</small><strong id="verified">—</strong>
+        </article>
+        <article>
+          <small>CONTROLLER</small><strong id="controller">—</strong>
+        </article>
+        <article>
+          <small>INVENTORY</small
+          ><strong id="inventory">Not measured yet</strong>
+        </article>
+      </section>
+      <div class="columns">
+        <section class="panel">
+          <small>CHOOSE YOUR NEXT STEP</small>
+          <h2>Task controls</h2>
+          <button disabled data-task="inspect">
+            <b>Inspect surroundings</b
+            ><span>See blocks the bot can legitimately observe.</span></button
+          ><button disabled data-task="collect_one">
+            <b>Collect one dirt block</b
+            ><span>Choose a visible target and verify collection.</span></button
+          ><button disabled data-task="collect_three">
+            <b>Collect up to three dirt blocks</b
+            ><span>Run three bounded episodes; stop on any failure.</span>
+          </button>
+          <p class="hint">
+            For the complete three-block example, reset to a fresh course first.
+            Later collections include movement around the first dug hole.
+          </p>
+          <div class="actions">
+            <button id="cancel" class="danger" disabled>
+              Cancel current task</button
+            ><button id="reset" disabled>Reset simulation</button>
+          </div>
+          <button disabled>
+            Real Minecraft connection · Future capability
+          </button>
+        </section>
+        <section class="panel">
+          <small>ACTUAL BACKEND ACTIVITY</small>
+          <h2 id="task-title">Ready when you are</h2>
+          <p id="task-message" aria-live="polite">Choose a task to begin.</p>
+          <ol id="timeline" aria-label="Task activity"></ol>
+          <h3>Observed surroundings</h3>
+          <ul id="blocks">
+            <li>No inspection yet.</li>
+          </ul>
+        </section>
+      </div>
+      <section class="panel history">
+        <small>YOUR RECENT EXPEDITIONS</small>
+        <h2>Task history</h2>
+        <div id="history">Completed results will appear here.</div>
+      </section>
+      <footer>
+        Simulation only · Localhost only · Results reflect measured evidence,
+        never button clicks.
+      </footer>
+    </main>
+  </body>
+</html>
