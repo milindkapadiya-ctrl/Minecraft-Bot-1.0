@@ -8,6 +8,7 @@ import {
   stationaryState,
   collectStationarity,
   claimStationarityDetailed,
+  validateStationarity,
 } from "../perception/stationarity.js";
 import { performance } from "node:perf_hooks";
 import { observeNearbyTerrain } from "../perception/nearby-terrain.js";
@@ -128,7 +129,11 @@ export class PilotSessionAdapter {
       return "controller_unavailable";
     if (!stationaryState(bot)) return "unsupported_starting_state";
     const receipt = this.#stationarity?.evidence();
-    if (!receipt || performance.now() - receipt.completedAtMs >= 100)
+    if (
+      !receipt ||
+      performance.now() - receipt.completedAtMs >= 100 ||
+      !validateStationarity(receipt, this.#context!)
+    )
       return "physics_not_ready";
     const air = this.#air.read();
     if (air.status !== "valid" || air.raw === null || air.raw <= 60)
