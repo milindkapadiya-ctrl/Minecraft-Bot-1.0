@@ -9,12 +9,38 @@ import mineflayer, { type Bot, type BotOptions } from "mineflayer";
 import type { Config } from "../config.js";
 import type { Log } from "../telemetry/logger.js";
 import { observePlayer } from "../observation/player.js";
+import { randomUUID } from "node:crypto";
 
 export interface SessionResult {
   exitCode: number;
   reason: string;
 }
 type Factory = (options: BotOptions) => Bot;
+export interface SessionHandle {
+  stop(reason?: string, exitCode?: number): void;
+  done: Promise<SessionResult>;
+}
+interface SessionBinding {
+  bot: Bot;
+  runner: ActionRunner | undefined;
+  sessionId: string;
+  entity: Bot["entity"] | undefined;
+  dimension: string | undefined;
+  active: boolean;
+  ended: boolean;
+  signal: AbortSignal;
+  shutdownTimeoutMs: number;
+}
+const bindings = new WeakMap<object, () => SessionBinding>();
+/** Only handles minted by startSession resolve. Internal trusted composition,
+ * not a network authentication claim or a raw controller creation API. */
+export function readSessionBinding(
+  handle: unknown,
+): SessionBinding | undefined {
+  return typeof handle === "object" && handle !== null
+    ? bindings.get(handle)?.()
+    : undefined;
+}
 
 export function startSession(
   config: Config,
@@ -38,14 +64,31 @@ export function startSession(
   let shutdownTimer: NodeJS.Timeout | undefined;
   let connectTimer: NodeJS.Timeout | undefined;
   let disposeReady: (() => void) | undefined;
+  const sessionId = randomUUID();
+  const lifecycle = new AbortController();
+  let initialEntity: Bot["entity"] | undefined;
+  let initialDimension: string | undefined;
   let resolveDone!: (result: SessionResult) => void;
   const done = new Promise<SessionResult>((resolve) => {
     resolveDone = resolve;
   });
+  const handle: SessionHandle = Object.freeze({ stop, done });
+  bindings.set(handle, () => ({
+    bot,
+    runner: actions,
+    sessionId,
+    entity: initialEntity,
+    dimension: initialDimension,
+    active: spawned && !stopping && !finished,
+    ended: connectionEnded,
+    signal: lifecycle.signal,
+    shutdownTimeoutMs: config.shutdownTimeoutMs,
+  }));
 
   function clearActivity() {
     // Close admission before invoking any consumer disposal callback.
     actions?.close();
+    lifecycle.abort();
     if (bot) closeControls(bot);
     const dispose = disposeReady;
     disposeReady = undefined;
@@ -80,13 +123,20 @@ export function startSession(
       outcome = { reason: "shutdown_timeout", exitCode: 1 };
       try {
         bot.end("shutdown_timeout");
+      } catch {
+        outcome = { reason: "shutdown_failed", exitCode: 1 };
       } finally {
         finish();
       }
     }, config.shutdownTimeoutMs);
     // Signals can arrive before Mineflayer has injected its quit plugin.
-    if (typeof bot.quit === "function") bot.quit("Session ended");
-    else bot.end("Session ended");
+    try {
+      if (typeof bot.quit === "function") bot.quit("Session ended");
+      else bot.end("Session ended");
+    } catch {
+      // Retain the bounded fallback and do not invent a delivered end event.
+      outcome = { reason: "shutdown_request_failed", exitCode: 1 };
+    }
   }
   function report() {
     if (!spawned || stopping || finished) return;
@@ -121,7 +171,7 @@ export function startSession(
     outcome = { exitCode: 1, reason: "connection_initialization_failed" };
     if (bot!) stop("connection_initialization_failed", 1);
     else finish();
-    return { stop, done };
+    return handle;
   }
   connectTimer = setTimeout(
     () => stop("spawn_timeout", 1),
@@ -137,6 +187,8 @@ export function startSession(
     clearTimeout(connectTimer);
     if (!spawned) {
       spawned = true;
+      initialEntity = bot.entity;
+      initialDimension = bot.game.dimension;
       log("spawned");
       if (onReady) {
         try {
@@ -212,5 +264,5 @@ export function startSession(
     if (!stopping) outcome = { exitCode: 1, reason: "server_disconnected" };
     finish();
   });
-  return { stop, done };
+  return handle;
 }

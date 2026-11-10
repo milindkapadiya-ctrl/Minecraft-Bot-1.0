@@ -218,6 +218,15 @@ export class ActionRunner {
   }
   private readonly disconnect = () => this.close();
 
+  /** Read-only diagnostic; never reserves admission or grants action authority. */
+  admissionState(): "idle" | "busy" | "closed" {
+    return this.closed
+      ? "closed"
+      : this.operation || this.active
+        ? "busy"
+        : "idle";
+  }
+
   cancel(actionId?: string) {
     if (actionId === undefined) this.operation?.stop("cancelled");
     if (actionId === undefined || this.active?.id === actionId)
