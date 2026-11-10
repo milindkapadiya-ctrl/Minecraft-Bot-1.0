@@ -31,6 +31,7 @@ export class EvaluationBot extends ResourceCourseBot {
   confirmations = 0;
   drops = 0;
   tickIndex = 0;
+  cameraCalls = 0;
   tickListener: (() => void) | undefined;
   #disposed = false;
   #random: number;
@@ -153,6 +154,7 @@ export class EvaluationBot extends ResourceCourseBot {
     }
   }
   override async look(yaw: number, pitch: number) {
+    this.cameraCalls++;
     if (this.settings.lookDelayMs) await this.wait(this.settings.lookDelayMs);
     if (this.#disposed) return;
     await super.look(yaw, pitch);

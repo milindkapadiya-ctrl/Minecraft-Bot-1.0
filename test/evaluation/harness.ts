@@ -11,7 +11,10 @@ import { EvaluationBot } from "./fixture.js";
 import type { Scenario, Expected } from "./scenarios.js";
 
 export interface Evaluation {
-  profile?: ReturnType<LatencyProbe["snapshot"]> & { cpuMs: number };
+  profile?: ReturnType<LatencyProbe["snapshot"]> & {
+    cpuMs: number;
+    cameraCalls: number;
+  };
   id: string;
   group: string;
   seed: number;
@@ -352,7 +355,13 @@ export async function evaluate(
           : "refused";
   const summary: Omit<Evaluation, "violations"> = {
     ...(timings
-      ? { profile: { ...timings, cpuMs: (cpu.user + cpu.system) / 1000 } }
+      ? {
+          profile: {
+            ...timings,
+            cpuMs: (cpu.user + cpu.system) / 1000,
+            cameraCalls: raw.cameraCalls,
+          },
+        }
       : {}),
     id: scenario.id,
     group: scenario.group,

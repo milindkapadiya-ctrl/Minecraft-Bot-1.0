@@ -813,7 +813,9 @@ export class ActionRunner {
                 throw new Error("invalid_owned_look");
               pendingLook = true;
               try {
-                await ownership.within(() => thisBot.look(yaw, pitch, true));
+                await measuredPromise(thisBot, "camera", () =>
+                  ownership.within(() => thisBot.look(yaw, pitch, true)),
+                );
                 checkpoint();
               } finally {
                 pendingLook = false;
@@ -836,7 +838,9 @@ export class ActionRunner {
                 throw new Error("cleanup_look_unavailable");
               pendingLook = true;
               try {
-                await ownership.within(() => thisBot.look(yaw, pitch, true));
+                await measuredPromise(thisBot, "camera", () =>
+                  ownership.within(() => thisBot.look(yaw, pitch, true)),
+                );
                 if (finalized) throw new Error("action_expired");
               } catch (error) {
                 if (!finalized) poison("restoration_failed");

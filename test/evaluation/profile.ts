@@ -44,6 +44,12 @@ for (let repeat = 0; repeat < Number(args[1]); repeat++) {
     const scenario = scenarios.find((s) => s.id === id);
     if (!scenario) throw Error("missing_scenario:" + id);
     const r = await evaluate(scenario, 7, true);
+    if (
+      r.profile!.dropped ||
+      r.profile!.cameraCalls !==
+        r.profile!.entries.filter((e) => e.phase === "camera").length
+    )
+      throw Error("incomplete_profile:" + id);
     results.push(r);
     process.stdout.write(
       JSON.stringify({
