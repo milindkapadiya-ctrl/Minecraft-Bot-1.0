@@ -62,3 +62,9 @@ Run Windows checks separately because they rebuild the checkout: `node --test te
 7. Restore the activation gate to false and record the real technical result. OBS/spectator recording is separate visual acceptance.
 
 Still unverified: real Minecraft protocol/readiness/physics/cancellation/disconnect, browser rendering/accessibility/File Explorer workflow, and any separately requested recording. Offline success does not establish these results.
+
+## LIVE-01 implemented connection lifecycle
+
+`LiveDashboardSession` now composes one genuine startSession/RealTaskService behind the existing HTTP service. It does not call the auto-admitting CLI pilot. Pinned initial spawn-before-health ordering is handled using the actual health event, without fabricated values. One canonical bounded downward look follows authentic stationary evidence. Fresh full pilot preflight controls readiness; no raw movement/target route is supplied. A new durable administrative ledger permanently consumes world/session admission before setup; CollectionPilot's separate exclusive marker records actual gameplay consumption.
+
+The source-gated administrative launcher fixes the authorization, localhost ports, identity and isolated world. It validates existing pinned artifacts/EULA, fresh operator readiness and port availability, starts one whitelist-only unprivileged Survival server/client, then waits for a user request. Readiness, waiting, collection and shutdown each have bounds. HTTP cannot configure the server or submit an attempt identity. Normal launchers and the old pilot gate stay disabled from live work. See [LIVE-01 evidence](workstreams/mcbot-dashboard-live-01.md) for the actual trial outcome; the earlier future-design steps above describe the Dashboard-02 checkpoint.

@@ -59,3 +59,13 @@ The panel says **REAL MINECRAFT MODE — NOT YET ACTIVATED**. There is no connec
 A later authorized milestone must supply the reviewed connection lifecycle and complete one real acceptance trial. See [integration and activation steps](dashboard-real-game-design.md). OBS/spectator recording is separate visual acceptance, not a technical-collection prerequisite.
 
 Cmd parsing/startup/shutdown were validated headlessly. Actual browser rendering, accessibility and File Explorer double-click experience remain human review items; no GUI was opened during this milestone.
+
+## Dedicated real-dashboard trial (LIVE-01)
+
+The ordinary double-click launcher stays simulation-only. The reviewed live path is `node scripts/dashboard-live-once.mjs`; it is source-locked by default, accepts no arguments, and is tied to one permanent authorization. It is not a general Connect button. A fresh user readiness confirmation and all offline/prerequisite checks precede world admission. Never change identities or remove a marker to retry.
+
+For the authorized trial, open the printed **http://127.0.0.1:45432** address. Check **REAL MINECRAFT · ONE ATTEMPT** and wait for **Ready for one approved task**. Click **Collect one dirt block** yourself once. Cancel requests a stop; wait for cleanup. Refreshing does not submit another request. Collect-three and reset remain unavailable. A closed browser does not cancel work; the operation still has its fixed bound.
+
+The session disconnects after the result. Copied outcome/target/inventory evidence stays visible for 15 seconds, then the dashboard and owned server close normally. A later connection error is expected after shutdown. The permanent world/evidence remain preserved. If readiness fails, the consumed world/session cannot be retried even if you never clicked the task.
+
+See [LIVE-01 actual results and handoff](workstreams/mcbot-dashboard-live-01.md). The dedicated source gate is restored to disabled at closeout. Another live attempt requires new authorization, not another click or relaunch. OBS is not required.

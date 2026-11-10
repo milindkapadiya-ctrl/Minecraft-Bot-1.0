@@ -1,3 +1,5 @@
+**LIVE-01 dashboard result:** one separately authorized disposable world/session connected, then safely refused at readiness before a user collection request. That authorization is consumed and closed; both live gates are disabled. The standalone CLI pilot described below was not executed. [Actual result and evidence](workstreams/mcbot-dashboard-live-01.md).
+
 # Single-episode autonomous collection pilot
 
 Status: **prepared, source-locked OFF, no live attempt initialized**. This is technical resource-collection acceptance, separate from the DEMO-02 recorded north/west campaign. OBS and a graphical spectator are not prerequisites for this technical pilot.
@@ -62,3 +64,7 @@ The pilot remains source-locked OFF. Offline timing now distinguishes three-view
 The internal `RealTaskService` now provides the single-episode pilot through a typed dashboard task boundary. Its constructor requires an existing dedicated genuine session handle and server-owned attempt identity/evidence root; it never connects. Construct it at spawn before own metadata, without a second PilotSessionAdapter. Read-only `observeSessionActions` uses that same genuine handle to relay bounded canonical action labels. Reset, extra episodes and reassignment of that session are forbidden. Refusal/cancel/shutdown closes the dedicated session and never retries.
 
 This does not activate the pilot CLI or any dashboard entrypoint. The future dashboard lifecycle must wait for an explicit button admission instead of also calling the auto-invoking `runPilotSession`. Follow the [dashboard activation procedure](dashboard-real-game-design.md) in a separately authorized milestone. Technical acceptance still does not require OBS.
+
+## Dedicated dashboard authorization
+
+LIVE-01 adds a separate source-reviewed path for exactly one approved world/session and one user-clicked task. Its world/session ledger consumes failed preparation too, independently of the existing CollectionPilot task marker. The existing `pilot-once.mjs` remains false and must not be used to obtain an extra attempt. See [operator workflow](dashboard-guide.md#dedicated-real-dashboard-trial-live-01) and [actual acceptance evidence](workstreams/mcbot-dashboard-live-01.md). The server supervisor uses the existing bounded ServerLifecycle and separately records process/port closeout; no screenshot or OBS result is inferred.
