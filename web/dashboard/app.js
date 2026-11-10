@@ -7,7 +7,8 @@ const labels = {
 const $ = (id) => document.getElementById(id);
 let token = "",
   state = null,
-  pending = false;
+  pending = false,
+  connectionLost = false;
 const readable = (value) => String(value ?? "unknown").replaceAll("_", " ");
 const actions = {
   inspect: "Looking around",
@@ -154,7 +155,12 @@ $("reset").addEventListener("click", () => command("/api/reset", {}));
 async function poll() {
   try {
     await refresh();
+    if (connectionLost) {
+      connectionLost = false;
+      $("error").hidden = true;
+    }
   } catch {
+    connectionLost = true;
     for (const button of document.querySelectorAll("button"))
       button.disabled = true;
     $("error").textContent =
