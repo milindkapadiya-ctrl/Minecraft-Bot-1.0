@@ -52,3 +52,7 @@ pnpm check
 ```
 
 All pilot tests use explicit controlled factories. The disabled-entry test launches only a short-lived Node process that exits before any live imports. Fake evidence uses uniquely named temporary directories. Neither these tests nor this milestone initializes a real pilot identity or modifies DEMO-02.
+
+## Performance-06 qualification
+
+The pilot remains source-locked OFF. Offline timing now distinguishes three-view acquisition waits from calculation and movement; a small post-movement polling delay is removed without changing stationary admission. The near-deadline success fixture still has a narrow scheduling margin: strict deadline behavior is tested independently, but wall-clock success is not guaranteed under load. Do not increase deadlines or interpret offline results as live latency acceptance. Preserve the one-attempt lifecycle and refusal outcome. See [performance evidence](workstreams/mcbot-performance-06.md) and [future navigation contract](navigation-performance.md).
