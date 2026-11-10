@@ -10,6 +10,19 @@ let token = "",
   pending = false,
   connectionLost = false;
 const readable = (value) => String(value ?? "unknown").replaceAll("_", " ");
+const errors = {
+  not_ready:
+    "The bot is busy or not ready. Wait for current status before trying again.",
+  reset_not_safe:
+    "Reset is unavailable until safe simulation cleanup is confirmed.",
+  attempt_consumed:
+    "This single attempt is finished or already running. It cannot be retried.",
+  unsupported_task: "This task is unavailable in the current mode.",
+  duplicate_task:
+    "That request was already received. Check its existing result.",
+  authorization_required:
+    "Reload the local page to refresh its session authorization.",
+};
 const actions = {
   inspect: "Looking around",
   exclusive: "Observing terrain",
@@ -22,6 +35,7 @@ const actions = {
   cleanup: "Confirming cleanup",
   task: "Task",
   cancellation: "Cancellation",
+  pilot: "Single collection attempt",
 };
 const outcomes = {
   verified: "Collection independently verified.",
@@ -38,6 +52,14 @@ const outcomes = {
 function render(snapshot) {
   if (state && snapshot.revision < state.revision) return;
   state = snapshot;
+  $("mode").textContent =
+    snapshot.mode === "SIMULATION"
+      ? "SIMULATION MODE"
+      : "REAL BRIDGE · PREPARED ONLY";
+  $("mode-description").textContent =
+    snapshot.mode === "SIMULATION"
+      ? "Inspect the course, collect dirt, and follow each guarded action. This is controlled fake physics and resources; no Minecraft client is connected."
+      : "Internal trusted-session rehearsal. Live Minecraft is not activated by this dashboard. Only one separately admitted collection is supported; reset is unavailable.";
   $("state").textContent = readable(snapshot.state);
   $("controller").textContent = readable(snapshot.controller);
   $("verified").textContent = String(snapshot.verified);
@@ -45,12 +67,33 @@ function render(snapshot) {
     ? snapshot.inventory.map((i) => `${i.name}: ${i.count}`).join(", ")
     : "No items measured";
   for (const button of document.querySelectorAll("[data-task]"))
-    button.disabled = pending || snapshot.state !== "ready";
+    button.disabled =
+      pending ||
+      connectionLost ||
+      snapshot.state !== "ready" ||
+      !snapshot.capabilities.includes(button.dataset.task);
   $("cancel").disabled =
-    pending || !snapshot.active || snapshot.state === "stopping";
-  $("reset").disabled = pending || !snapshot.canReset;
+    pending ||
+    connectionLost ||
+    !snapshot.active ||
+    snapshot.state === "stopping";
+  $("reset").disabled = pending || connectionLost || !snapshot.canReset;
   const task = snapshot.active ?? snapshot.history[0];
   $("task-title").textContent = task ? labels[task.kind] : "Ready when you are";
+  const episode = task?.episodes?.at(-1);
+  const target = episode?.selection?.target;
+  const admission = task?.pilot
+    ? task.pilot.consumed === true
+      ? "Attempt admitted."
+      : "Attempt not confirmed admitted."
+    : snapshot.mode === "SIMULATION"
+      ? "Task admitted."
+      : "Checking attempt admission.";
+  $("task-evidence").textContent = task
+    ? `${admission} ${target ? `Selected target: (${target.x}, ${target.y}, ${target.z}). ` : ""}${episode?.navigation ? `${episode.navigation.steps} guarded waypoint(s). ` : ""}${task.completedAt ? `Reason: ${readable(task.reason)}. Cleanup: ${task.outcome === "cleanup_uncertain" ? "unconfirmed" : "completed"}.` : "Cleanup is pending."}`
+    : snapshot.state === "ready"
+      ? "One task at a time, across every browser tab."
+      : "Waiting for backend readiness. No task has started.";
   $("task-message").textContent =
     snapshot.state === "stopping"
       ? "Cancellation requested. Waiting for the bot to stop and confirm cleanup."
@@ -90,6 +133,7 @@ function render(snapshot) {
         completed: result.completedAt,
         reason: result.reason,
         episodes: result.episodes,
+        pilot: result.pilot,
       },
       null,
       2,
@@ -130,9 +174,11 @@ async function command(path, body) {
       body: JSON.stringify(body),
     });
     const result = await response.json();
-    if (!response.ok) throw Error(readable(result.error));
+    if (!response.ok)
+      throw Error(errors[result.error] ?? readable(result.error));
     await refresh();
   } catch (error) {
+    connectionLost = true;
     $("error").textContent = error.message;
     $("error").hidden = false;
   } finally {
@@ -158,6 +204,7 @@ async function poll() {
     if (connectionLost) {
       connectionLost = false;
       $("error").hidden = true;
+      if (state) render(state);
     }
   } catch {
     connectionLost = true;

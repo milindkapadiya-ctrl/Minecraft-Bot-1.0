@@ -35,6 +35,7 @@ test("frontend maps controls, blocks duplicate clicks, rejects old status and ne
   const calls: { path: string; options?: { body: string } }[] = [];
   const snapshot = {
     mode: "SIMULATION",
+    capabilities: ["inspect", "collect_one", "collect_three"],
     revision: 1,
     state: "ready",
     controller: "idle",
@@ -127,6 +128,15 @@ test("frontend maps controls, blocks duplicate clicks, rejects old status and ne
   for (let i = 0; i < 15; i++) await Promise.resolve();
   assert.equal(byId("error").hidden, false);
   assert.match(byId("error").textContent, /task not active/);
+  assert.ok(buttons.every((b) => b.disabled));
+  runInNewContext(
+    'render({...state,revision:8,state:"ready",active:null});',
+    context,
+  );
+  assert.ok(
+    buttons.every((b) => b.disabled),
+    "stale render cannot enable controls after an uncertain command",
+  );
   const originalFetch = context.fetch;
   context.fetch = async () => {
     throw Error("offline");
@@ -137,4 +147,14 @@ test("frontend maps controls, blocks duplicate clicks, rejects old status and ne
   context.fetch = originalFetch;
   await runInNewContext("poll()", context);
   assert.equal(byId("error").hidden, true);
+  runInNewContext(
+    'render({...state,revision:20,mode:"REAL_MINECRAFT_PREPARED",capabilities:["collect_one"],state:"ready",active:null,canReset:false});',
+    context,
+  );
+  assert.match(byId("mode").textContent, /PREPARED ONLY/);
+  assert.equal(buttons[0]!.disabled, true);
+  assert.equal(buttons[1]!.disabled, false);
+  assert.equal(buttons[2]!.disabled, true);
+  assert.equal(byId("reset").disabled, true);
+  assert.match(byId("mode-description").textContent, /not activated/);
 });

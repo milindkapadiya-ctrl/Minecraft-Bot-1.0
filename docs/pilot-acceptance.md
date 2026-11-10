@@ -56,3 +56,9 @@ All pilot tests use explicit controlled factories. The disabled-entry test launc
 ## Performance-06 qualification
 
 The pilot remains source-locked OFF. Offline timing now distinguishes three-view acquisition waits from calculation and movement; a small post-movement polling delay is removed without changing stationary admission. The near-deadline success fixture still has a narrow scheduling margin: strict deadline behavior is tested independently, but wall-clock success is not guaranteed under load. Do not increase deadlines or interpret offline results as live latency acceptance. Preserve the one-attempt lifecycle and refusal outcome. See [performance evidence](workstreams/mcbot-performance-06.md) and [future navigation contract](navigation-performance.md).
+
+## Dashboard-02 session composition
+
+The internal `RealTaskService` now provides the single-episode pilot through a typed dashboard task boundary. Its constructor requires an existing dedicated genuine session handle and server-owned attempt identity/evidence root; it never connects. Construct it at spawn before own metadata, without a second PilotSessionAdapter. Read-only `observeSessionActions` uses that same genuine handle to relay bounded canonical action labels. Reset, extra episodes and reassignment of that session are forbidden. Refusal/cancel/shutdown closes the dedicated session and never retries.
+
+This does not activate the pilot CLI or any dashboard entrypoint. The future dashboard lifecycle must wait for an explicit button admission instead of also calling the auto-invoking `runPilotSession`. Follow the [dashboard activation procedure](dashboard-real-game-design.md) in a separately authorized milestone. Technical acceptance still does not require OBS.

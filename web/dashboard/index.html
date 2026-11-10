@@ -14,14 +14,14 @@
         <small>YOUR LOCAL EXPEDITION DESK</small>
         <h1>Minecraft Bot Control Center</h1>
       </div>
-      <strong class="badge">SIMULATION</strong>
+      <strong id="mode" class="badge">SIMULATION · LOADING STATUS</strong>
     </header>
     <main>
       <section class="hero">
         <div>
           <small>SAFE TO EXPLORE</small>
           <h2>A small world.<br />A real working bot.</h2>
-          <p>
+          <p id="mode-description">
             Inspect the course, collect dirt, and follow each guarded action.
             Everything here runs in a controlled simulation. No Minecraft client
             is connected.
@@ -70,14 +70,23 @@
               Cancel current task</button
             ><button id="reset" disabled>Reset simulation</button>
           </div>
-          <button disabled>
-            Real Minecraft connection · Future capability
-          </button>
+          <aside class="hint">
+            <strong>REAL MINECRAFT MODE — NOT YET ACTIVATED</strong>
+            <p>
+              The trusted single-collection bridge is prepared for offline
+              rehearsal. A separately authorized connection and live acceptance
+              are required before it can control Minecraft. No recording
+              software is needed for technical collection.
+            </p>
+          </aside>
         </section>
         <section class="panel">
           <small>ACTUAL BACKEND ACTIVITY</small>
           <h2 id="task-title">Ready when you are</h2>
-          <p id="task-message" aria-live="polite">Choose a task to begin.</p>
+          <p id="task-message" aria-live="polite">
+            Loading local session status…
+          </p>
+          <p id="task-evidence" class="hint"></p>
           <ol id="timeline" aria-label="Task activity"></ol>
           <h3>Observed surroundings</h3>
           <ul id="blocks">
@@ -91,8 +100,7 @@
         <div id="history">Completed results will appear here.</div>
       </section>
       <footer>
-        Simulation only · Localhost only · Results reflect measured evidence,
-        never button clicks.
+        Localhost only · Results reflect measured evidence, never button clicks.
       </footer>
     </main>
   </body>

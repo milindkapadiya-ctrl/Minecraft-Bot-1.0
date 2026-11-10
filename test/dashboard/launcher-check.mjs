@@ -76,10 +76,18 @@ test(
   async () => {
     assert.match(root, /OneDrive/);
     assert.match(root, /Minecraft Bot/);
+    // Only this child has a minimal search path: prove the Program Files Node
+    // fallback when ordinary shells cannot find Node or global pnpm.
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([key]) => key.toLowerCase() !== "path",
+      ),
+    );
+    env.Path = join(process.env.SystemRoot ?? "C:\\Windows", "System32");
     const c = child(
       "cmd.exe",
       ["/d", "/s", "/c", 'call ".\\START-MINECRAFT-BOT-DASHBOARD.cmd"'],
-      { windowsVerbatimArguments: true },
+      { windowsVerbatimArguments: true, env },
     );
     try {
       await ready(c);
