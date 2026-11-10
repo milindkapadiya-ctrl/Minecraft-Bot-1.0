@@ -27,7 +27,16 @@ test("frontend maps controls, blocks duplicate clicks, rejects old status and ne
     if (!elements.has(id)) elements.set(id, new Element());
     return elements.get(id)!;
   };
-  const buttons = ["inspect", "collect_one", "collect_three"].map((kind) => {
+  const buttons = [
+    "inspect",
+    "collect_one",
+    "collect_three",
+    "inventory",
+    "look_left",
+    "look_right",
+    "look_up",
+    "look_down",
+  ].map((kind) => {
     const b = new Element();
     b.dataset.task = kind;
     return b;
@@ -46,7 +55,15 @@ test("frontend maps controls, blocks duplicate clicks, rejects old status and ne
     history: [],
   };
   let resolvePost: ((value: unknown) => void) | undefined;
+  const copied: string[] = [];
   const context = {
+    navigator: {
+      clipboard: {
+        writeText: async (s: string) => {
+          copied.push(s);
+        },
+      },
+    },
     document: {
       getElementById: byId,
       querySelectorAll: (q: string) =>
@@ -167,4 +184,72 @@ test("frontend maps controls, blocks duplicate clicks, rejects old status and ne
   runInNewContext('render({...state,revision:22,state:"ready"});', context);
   assert.equal(buttons[1]!.disabled, false);
   assert.match(byId("state").textContent, /one approved task/);
+  assert.ok(buttons.slice(3).every((b) => b.disabled));
+  assert.equal(byId("dig-selected").disabled, true);
+  runInNewContext(
+    'render({...state,revision:23,connection:{connected:true,host:"127.0.0.1",port:25590,username:"TrustedBot",version:"26.1",survival:true},player:{health:16},inventoryMeasuredAt:"2026-11-10T20:00:00Z"});',
+    context,
+  );
+  assert.match(
+    byId("server-info").textContent,
+    /127.0.0.1:25590.*TrustedBot.*26.1.*Survival verified/,
+  );
+  assert.match(byId("connection-state").textContent, /Connected to Minecraft/);
+  assert.match(byId("address-note").textContent, /only on this host/);
+  assert.match(byId("health").textContent, /♥.*16\/20/);
+  await byId("copy-server").listeners.click!();
+  assert.deepEqual(copied, ["127.0.0.1:25590"]);
+  context.navigator.clipboard.writeText = async () => {
+    throw Error("denied");
+  };
+  await byId("copy-server").listeners.click!();
+  assert.match(
+    byId("copy-result").textContent,
+    /Copy unavailable.*127.0.0.1:25590/,
+  );
+  runInNewContext(
+    'render({...state,revision:24,state:"disconnected",connection:{...state.connection,connected:false,survival:false},player:undefined});',
+    context,
+  );
+  assert.equal(byId("connection-state").textContent, "Disconnected");
+  assert.equal(byId("health").textContent, "Health unknown");
+  runInNewContext(
+    'render({...state,revision:25,mode:"SIMULATION",state:"ready",connection:undefined,capabilities:["inspect","inventory","look_left","look_right","look_up","look_down","dig_selected"],selections:[{id:"selection-token",name:"dirt",target:{x:1,y:63,z:0}}]});',
+    context,
+  );
+  assert.match(byId("connection-state").textContent, /no Minecraft server/);
+  assert.equal(byId("copy-server").disabled, true);
+  assert.equal(byId("dig-selected").disabled, true);
+  byId("selections").children[0]!.listeners.click!();
+  assert.equal(byId("dig-selected").disabled, false);
+  byId("dig-selected").listeners.click!();
+  assert.deepEqual(JSON.parse(calls.at(-1)!.options!.body), {
+    id: "opaque-id",
+    kind: "dig_selected",
+    selectionId: "selection-token",
+  });
+  resolvePost!({ ok: true, json: async () => ({}) });
+  for (let i = 0; i < 15; i++) await Promise.resolve();
+  runInNewContext("render({...state,revision:26,selections:[]});", context);
+  assert.equal(byId("dig-selected").disabled, true);
+});
+
+test("Minecraft styling is local, responsive, keyboard accessible and does not import game assets", () => {
+  const css = readFileSync(
+    new URL("../../web/dashboard/style.css", import.meta.url),
+    "utf8",
+  );
+  const html = readFileSync(
+    new URL("../../web/dashboard/index.html", import.meta.url),
+    "utf8",
+  );
+  assert.match(css, /repeating-linear-gradient/);
+  assert.match(css, /\.slot/);
+  assert.match(css, /Courier New/);
+  assert.match(css, /@media \(max-width: 760px\)/);
+  assert.match(css, /@media \(max-width: 440px\)/);
+  assert.match(css, /:focus-visible/);
+  assert.match(html, /aria-live="polite"/);
+  assert.match(html, /Copy Server Address/);
+  assert.doesNotMatch(html + css, /https?:\/\/|@import|url\(/);
 });

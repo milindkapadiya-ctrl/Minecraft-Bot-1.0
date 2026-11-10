@@ -20,7 +20,7 @@
       <section class="hero">
         <div>
           <small>SAFE TO EXPLORE</small>
-          <h2>A small world.<br />A real working bot.</h2>
+          <h2>Your bot.<br />One guarded step at a time.</h2>
           <p id="mode-description">
             Inspect the course, collect dirt, and follow each guarded action.
             Everything here runs in a controlled simulation. No Minecraft client
@@ -32,11 +32,24 @@
         </div>
       </section>
       <p id="error" role="alert" hidden></p>
+      <section class="panel connection" aria-label="Connection">
+        <small>01 · CONNECTION</small>
+        <h2 id="connection-state">Loading connection…</h2>
+        <p id="server-info">Waiting for trusted server information.</p>
+        <button id="copy-server" disabled>Copy Server Address</button>
+        <p id="copy-result" role="status"></p>
+        <p id="address-note" class="hint"></p>
+      </section>
       <details class="hint">
         <summary>Session readiness details</summary>
         <pre id="readiness">Waiting for local status.</pre>
       </details>
-      <section class="metrics" aria-label="Simulation overview">
+      <section class="metrics" aria-label="Bot status">
+        <article>
+          <small>02 · BOT STATUS</small
+          ><strong id="health">Health unknown</strong
+          ><span id="position">Position unknown</span>
+        </article>
         <article>
           <small>SESSION</small><strong id="state">Connecting…</strong>
         </article>
@@ -51,10 +64,25 @@
           ><strong id="inventory">Not measured yet</strong>
         </article>
       </section>
+      <section class="panel inventory-panel">
+        <h2>Inventory</h2>
+        <p id="inventory-time">Not measured yet</p>
+        <div id="inventory-slots" class="slots"></div>
+      </section>
       <div class="columns">
         <section class="panel">
-          <small>CHOOSE YOUR NEXT STEP</small>
+          <small>03 · CONTROL PANEL</small>
           <h2>Task controls</h2>
+          <button disabled data-task="inventory">
+            <b>View inventory</b
+            ><span>Request a fresh canonical measurement.</span>
+          </button>
+          <div class="camera" aria-label="Camera controls">
+            <button disabled data-task="look_left">← Look left</button
+            ><button disabled data-task="look_right">Look right →</button>
+            <button disabled data-task="look_up">↑ Look up</button
+            ><button disabled data-task="look_down">↓ Look down</button>
+          </div>
           <button disabled data-task="inspect">
             <b>Inspect surroundings</b
             ><span>See blocks the bot can legitimately observe.</span></button
@@ -65,6 +93,11 @@
             <b>Collect up to three dirt blocks</b
             ><span>Run three bounded episodes; stop on any failure.</span>
           </button>
+          <p class="hint">
+            Manual controls are simulation-only. Camera turns are limited to
+            22.5° per request. Inspect, then select an eligible block below;
+            selections expire after 15 seconds.
+          </p>
           <p class="hint">
             For the complete three-block example, reset to a fresh course first.
             Later collections include movement around the first dug hole.
@@ -87,7 +120,7 @@
           </aside>
         </section>
         <section class="panel">
-          <small>ACTUAL BACKEND ACTIVITY</small>
+          <small>04 · ACTIVITY AND HISTORY</small>
           <h2 id="task-title">Ready when you are</h2>
           <p id="task-message" aria-live="polite">
             Loading local session status…
@@ -95,9 +128,13 @@
           <p id="task-evidence" class="hint"></p>
           <ol id="timeline" aria-label="Task activity"></ol>
           <h3>Observed surroundings</h3>
+          <p id="observation-source" class="hint"></p>
           <ul id="blocks">
             <li>No inspection yet.</li>
           </ul>
+          <div id="selections" class="selections"></div>
+          <p id="selected-block">No block selected.</p>
+          <button id="dig-selected" disabled>Dig selected visible block</button>
         </section>
       </div>
       <section class="panel history">

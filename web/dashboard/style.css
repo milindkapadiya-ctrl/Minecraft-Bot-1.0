@@ -3,7 +3,7 @@
   font:
     16px/1.55 system-ui,
     sans-serif;
-  background: #101915;
+  background: #211e19;
   color: #e9f1e8;
 }
 * {
@@ -17,10 +17,15 @@ header {
   gap: 18px;
   align-items: center;
   padding: 24px max(24px, calc((100vw - 1180px) / 2));
-  border-bottom: 1px solid #344a3c;
-  background: #17231b;
+  border-bottom: 8px solid #59402c;
+  background: repeating-linear-gradient(
+    90deg,
+    #324625 0 24px,
+    #354b27 24px 48px
+  );
 }
 h1 {
+  font-family: "Courier New", monospace;
   font-size: 22px;
   margin: 0;
 }
@@ -39,7 +44,7 @@ small {
   color: #172117;
   background: #d4e7a1;
   padding: 7px 14px;
-  border-radius: 30px;
+  border-radius: 0;
   font-size: 12px;
   letter-spacing: 1px;
 }
@@ -79,15 +84,15 @@ main {
 }
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
   gap: 12px;
   margin-bottom: 24px;
 }
 .metrics article {
   padding: 20px;
-  background: #1c2a21;
-  border: 1px solid #354b3c;
-  border-radius: 12px;
+  background: #31342e;
+  border: 3px solid #52574b;
+  border-radius: 0;
 }
 .metrics strong {
   display: block;
@@ -102,11 +107,18 @@ main {
 }
 .panel {
   padding: 26px;
-  background: #18241d;
-  border: 1px solid #34493a;
-  border-radius: 16px;
+  background: repeating-linear-gradient(
+    135deg,
+    #30332e 0 8px,
+    #32352f 8px 16px
+  );
+  border: 3px solid #646958;
+  border-radius: 0;
+  box-shadow: 5px 5px 0 #13150f;
+  min-width: 0;
 }
 h2 {
+  font-family: "Courier New", monospace;
   margin: 8px 0 20px;
   font-size: 25px;
 }
@@ -115,10 +127,12 @@ button {
   text-align: left;
   display: block;
   width: 100%;
-  border: 1px solid #47634d;
-  background: #273b2c;
+  border: 3px solid;
+  border-color: #8fa56a #25321b #25321b #8fa56a;
+  background: #40552c;
   color: #f0f4e8;
-  border-radius: 9px;
+  border-radius: 0;
+  min-height: 48px;
   padding: 15px 17px;
   margin: 10px 0;
   cursor: pointer;
@@ -138,7 +152,8 @@ button:focus-visible {
   outline-offset: 3px;
 }
 button:disabled {
-  opacity: 0.48;
+  opacity: 0.62;
+  filter: grayscale(0.8);
   cursor: not-allowed;
 }
 .actions {
@@ -151,8 +166,8 @@ button:disabled {
 }
 .hint,
 footer {
-  font-size: 13px;
-  color: #abbcae;
+  font-size: 14px;
+  color: #c4cbbd;
 }
 .history {
   margin-top: 24px;
@@ -197,6 +212,50 @@ pre {
 footer {
   text-align: center;
   padding: 30px 0;
+}
+.connection,
+.inventory-panel {
+  margin-bottom: 24px;
+  border-top: 8px solid #78a74a;
+}
+.connection p {
+  overflow-wrap: anywhere;
+}
+.camera {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+.slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 8px;
+}
+.slot {
+  min-height: 72px;
+  padding: 12px;
+  background: #242820;
+  border: 4px solid;
+  border-color: #171a13 #78806d #78806d #171a13;
+  overflow-wrap: anywhere;
+  font-family: "Courier New", monospace;
+}
+#health {
+  color: #f5a49a;
+  font-size: 17px;
+}
+#position {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 440px) {
+  .metrics,
+  .camera {
+    grid-template-columns: 1fr;
+  }
+  main {
+    padding: 20px 14px;
+  }
 }
 @media (max-width: 760px) {
   .columns {
