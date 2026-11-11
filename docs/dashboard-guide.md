@@ -23,7 +23,10 @@ If Node is on PATH, `node scripts/dashboard-launch.mjs` also works. Neither comm
 
 ## Use the controls
 
+- **View inventory** requests a canonical measurement. Slots show the last measured counts and their timestamp; an empty measurement is distinguished from unknown inventory.
+- **Look left/right/up/down** turns by at most 22.5 degrees through the guarded controller, with pitch clamped to the supported range. Camera controls are simulation-only.
 - **Inspect surroundings** shows blocks the simulated bot can legitimately see.
+- **Select / Dig selected visible block:** inspect, choose an eligible entry, then click Dig. Selections last 15 seconds and become invalid after another task, pose/world changes, or reset. The controller inspects again and verifies the same visible block/state before guarded aiming and digging. No automatic movement or retry is performed. Inspect again after a refusal. Server-confirmed air and inventory evidence are separate; manual digging does not increment independently verified collections.
 - **Collect one dirt block** selects a visible target and runs one guarded episode. The first resource is adjacent, so movement is not always necessary.
 - **Collect up to three dirt blocks** runs at most three episodes and stops on the first refusal. Reset to a fresh course for the complete example; later collections navigate around the first hole.
 - **Cancel current task** asks the bot to stop. Wait while the page says **stopping**; acknowledgment is not proof of cleanup. Cancellation may leave a partial collection.
@@ -34,6 +37,10 @@ The page shows mode, session readiness, controller state, measured inventory, ac
 Only one task runs across all tabs. Refreshing reads status and never repeats work. If the browser loses its connection, the task may still run; controls stay disabled until current status is available. Closing the browser is not cancellation: return to cancel or stop the launcher.
 
 ## Close safely
+
+The connection panel says explicitly when no Minecraft server is connected. In a separately authorized real session it shows only trusted host, port, bot identity, version and currently verified Survival status. **Copy Server Address** copies host:port, with a manual-copy fallback. `127.0.0.1` works only on the host computer, not on another recording computer. Health/position are observed telemetry; simulation values are labeled. Real mode still enables only its existing one-shot collection task. The new manual controls are not authorized for real gameplay.
+
+The four areas are connection, bot status/inventory, controls, and actual activity/history. Stone panels, grass/dirt accents and inventory slots are generated with local CSS and system fonts. Responsive source and DOM behavior are tested; no browser rendering or Zoom visual review was performed in Dashboard-03.
 
 Return to the launcher window, type **Q**, then press **Enter**. Wait for **Dashboard stopped** and command exit. Ctrl+C also requests shutdown. Active tasks settle before the local server finishes closing. The old page will show a connection error; reloads cannot start a server.
 

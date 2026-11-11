@@ -2,6 +2,8 @@
 
 # Single-episode autonomous collection pilot
 
+**Dashboard-03 is offline only.** Receipt validity now checks the current pose/context as well as freshness; camera repositioning must earn fresh stationary evidence before readiness. Controlled fakes cover delayed health/air, camera startup, support visibility, polling overlap and invalidation. This does not establish the original LIVE-01 timeout cause or prove real collection. New dashboard inventory/camera/selected-dig commands remain simulation-only. A future live task requires fresh explicit authorization; neither the consumed LIVE-01 identity nor either reserved DEMO-02 attempt was used for this work.
+
 Status: **prepared, source-locked OFF, no live attempt initialized**. This is technical resource-collection acceptance, separate from the DEMO-02 recorded north/west campaign. OBS and a graphical spectator are not prerequisites for this technical pilot.
 
 ## Authorization and prerequisites

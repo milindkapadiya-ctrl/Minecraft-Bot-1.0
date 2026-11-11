@@ -1,5 +1,17 @@
 # Dashboard real-game integration
 
+## Dashboard-03 offline extensions
+
+The simulation adds canonical inventory, four fixed 22.5-degree camera actions, and selected visible-block digging. HTTP accepts exact `{id,kind}` requests or `{id,kind:"dig_selected",selectionId}`; coordinates, angles and arbitrary action payloads remain forbidden. The real service and dedicated live composition still allow **only collect_one**. Both entrypoint source gates remain false.
+
+Selections are private, bounded to 25 entries and one simulation instance/inspection. Browser UUIDs are historical intent, never controller authority. A 15-second monotonic expiry, pose monitoring, forced-move/respawn/death/end/block-update invalidation, new-task invalidation and reset disposal revoke them. All entries are consumed on a selection request, including a forged request. Snapshot coordinates are display-only copies; state IDs remain private.
+
+A new task synchronously reserves service admission and uses the **existing** ActionRunner's authenticated `runOperation` for fresh inspection followed by guarded dig. Matching includes name, coordinates and state ID. The canonical dig revalidates visibility, harvestability and physical clearance before and after its owned aim. No ownership scope survives human selection or crosses HTTP; no extra controller, raw movement, retries or shared body API is introduced. The operation limit is 6 seconds, inspect 1 second and dig 4 seconds, followed by existing bounded settling/inventory cleanup. Late fake deliveries latch cleanup uncertainty and close admission. Manual results separate simulated server confirmation from canonical dig inventory evidence; only the existing collection episode can claim independently retained collection.
+
+Real connection information is copied from trusted constructor configuration, and connected/Survival/health/own-position fields come from the genuine session binding. No credentials or arbitrary config are exported. Closed sessions omit current player telemetry. Inventory is explicitly a last measurement, not continuously fresh state.
+
+Readiness now calls the existing `validateStationarity` in addition to the unchanged age gate. A failing-before/passing-after regression showed a camera change could previously leave the panel briefly eligible on the old pose receipt. This repair tightens admission. Ordinary camera changes recover after a new stationary window; 25ms polling and regular physics overlap without extending the 100ms lifetime. Delayed genuine air recovers; missing/invalid air, unknown support and session changes refuse. The actual LIVE-01 failed predicate remains unknown. Air arriving before the observation adapter exists is not replayed or inferred; that unsupported ordering remains a future diagnostic consideration, not a claimed historical cause.
+
 Dashboard-02 implements an **internal, disabled real-session bridge**, not an operational real-game connection. Normal launch paths remain simulation-only. `scripts/pilot-once.mjs` retains its literal false gate; no environment or CLI bypass exists.
 
 ## Implemented boundary

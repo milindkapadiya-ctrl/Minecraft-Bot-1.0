@@ -248,6 +248,11 @@ test("Minecraft styling is local, responsive, keyboard accessible and does not i
   assert.match(css, /Courier New/);
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /@media \(max-width: 440px\)/);
+  assert.ok(
+    css.indexOf("@media (max-width: 440px)") >
+      css.indexOf("@media (max-width: 760px)"),
+    "narrow-screen rule must win the cascade",
+  );
   assert.match(css, /:focus-visible/);
   assert.match(html, /aria-live="polite"/);
   assert.match(html, /Copy Server Address/);
