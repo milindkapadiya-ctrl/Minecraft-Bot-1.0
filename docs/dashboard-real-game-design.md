@@ -1,5 +1,9 @@
 # Dashboard real-game integration
 
+## Dashboard-04 prepared session lifecycle
+
+`SessionManager` composes existing `LiveLedger`, `ServerLifecycle`, startup parsing and `LiveDashboardSession` around the one-shot real task service. The dashboard can explicitly start an approved owned server, connect exactly once after readiness, and stop both. `TaskService.sessionControl` is an optional narrow lifecycle method; simulation has no implementation and the HTTP route refuses with `live_activation_disabled`. No new controller/body interface is introduced. Source-gated `dashboard-session-once.mjs` is false before profile access/imports; normal launchers remain unchanged. See [state transitions, security, runtime configuration and acceptance plan](dashboard-session-manager.md).
+
 ## Dashboard-03 offline extensions
 
 The simulation adds canonical inventory, four fixed 22.5-degree camera actions, and selected visible-block digging. HTTP accepts exact `{id,kind}` requests or `{id,kind:"dig_selected",selectionId}`; coordinates, angles and arbitrary action payloads remain forbidden. The real service and dedicated live composition still allow **only collect_one**. Both entrypoint source gates remain false.

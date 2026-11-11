@@ -1,0 +1,40 @@
+# Real Minecraft session manager
+
+Status: **implemented and tested offline; source-disabled**. Normal `START-MINECRAFT-BOT-DASHBOARD.cmd` launches the existing simulation. The Start Minecraft Session, Connect Bot and Stop Session controls appear disabled there with an explanation. They do not silently switch mode or create a world.
+
+## Prepared workflow
+
+The dedicated `scripts/dashboard-session-once.mjs` has a literal `LIVE_SESSION_MANAGER_ENABLED = false` before imports/profile reads. Environment variables and browser requests cannot override it. After a separately authorized source change and reviewed private profile, this entry opens the local dashboard **before** starting Minecraft:
+
+1. **Start Minecraft Session** reserves one in-memory operation and permanently claims the exclusive attempt directory before runtime/world effects. It validates the existing pinned Java 25/server 26.1 hashes, fresh operator readiness, existing EULA acceptance, and isolated unredirected storage. Only fixed Java arguments and fixed disposable flat Peaceful Survival properties are used. No existing world is loaded.
+2. Server startup must emit the existing version/Done handshake within 90 seconds. Status says **Starting Minecraft server**, then **Server ready · bot not connected**. No bot is created automatically. There is a five-minute limit for the Connect click.
+3. **Connect Bot** creates one existing `LiveDashboardSession`, which binds the existing canonical ActionRunner and reviewed one-shot pilot. It retains the 30-second readiness limit and five-minute task wait. The panel distinguishes connection from readiness and shows the actual blocking predicate and bounded diagnostic history.
+4. Only **Collect one dirt block** is available for real gameplay. The operator must click it; refreshes and status requests never start work. Inventory/look/inspect/selected dig/three-block collection remain simulation-only. No raw Mineflayer action, coordinate, path, Java argument or server configuration is accepted over HTTP.
+5. **Stop Session**, dashboard shutdown, startup/readiness failure, lost server/bot, cancellation, or task completion closes the bot and owned server. Bot shutdown uses the existing bound; normal server `stop` has the existing 30-second bound, followed by a one-second bounded port check. Confirmed cleanup requires bot end where applicable, server exit code/stdio evidence, normal stop, observed save completion and released port. Missing evidence remains **cleanup uncertain**. No forced kill, reconnect or retry is attempted.
+
+The dashboard may remain open for read-only results after the session ends; Ctrl+C closes its listener. Stopping or failing never restores the consumed attempt. A new process using the same root cannot launch another server. Partial ledgers are preserved, never deleted for retry. Root-validation failures have no world/process effects; the current manager still refuses another Start. If disk or OS operations hang, no application can claim confirmed cleanup; preserve evidence and investigate separately.
+
+## Trusted configuration and boundaries
+
+The future private JSON profile contains exactly `id`, `root`, `java`, `jar`, `eulaFile`, `serverPort`, `dashboardPort`, `username`, `observerUsername`, and `operatorReadyAt`. Paths must be absolute; the root basename must equal the new ID. The consumed LIVE-01 ID is explicitly rejected. Bot and observer identities must differ; ports must differ. The launcher checks both loopback ports before serving. The root must be outside OneDrive, unredirected and have at least 5GiB free. Existing compiled runtime hashes are preserved; no download/install or arbitrary JVM flags are supported. The profile stays outside tracked source and is never returned to the browser.
+
+The server permits only two whitelisted, unprivileged identities (bot and approved manual observer), with empty operators, no RCON/query/command blocks, no forced seed, and loopback binding. Server setup writes configuration but gameplay does not read world files, seed data or administrative commands. A bind failure cannot produce the owned-process readiness handshake and must not connect the bot elsewhere.
+
+HTTP adds only authenticated exact `{command:"start"|"connect"|"stop"}` requests at `/api/session-control`, under existing Host/Origin/token/content-type/body-size protections. Backend state, not disabled buttons, enforces admission. The trusted factory seam exists only for offline controlled fakes. Tests use the real ledger, readiness parsing, ServerLifecycle, session binding, controller, collection and inventory verification; no predetermined successful collection is returned.
+
+## Readiness findings
+
+The initial-health listener now waits through an invalid health notification until finite observed health arrives, within the unchanged deadline. Previously a one-time listener could consume that notification and construct an inactive observation context. `awaiting_initial_health` is visible rather than the generic awaiting-session label. This is an offline ordering repair, **not an established cause of the historical LIVE-01 timeout**.
+
+Health/physics/air, fresh stationary receipts, downward camera/support visibility, session identity and idle controller remain required. Air that arrives before the adapter exists is not reconstructed or replayed. A controlled-fake regression demonstrates conservative `own_air_not_ready` until a new genuine packet arrives; missing health/air times out without a task. The Dashboard-03 pose receipt repair remains intact. Neither readiness nor collection has new live validation.
+
+## One future disposable-world acceptance plan — authorization required
+
+1. Obtain explicit permission for **one new world/server, one bot connection and at most one operator-clicked collect_one**, plus normal shutdown and a narrow reviewed source-gate change. This is not reuse of LIVE-01 or either DEMO-02 attempt. No permission for manual real gameplay controls is implied.
+2. Review a new UUID and new root, preferably `%LOCALAPPDATA%/MCBotDashboardSessions/<new-UUID>`, existing verified Java/jar/EULA paths, distinct free server/dashboard ports, and separate bot/manual Minecraft usernames. Confirm that the user can operate the dashboard and understands Start consumes the attempt even if setup/readiness fails. Record `operatorReadyAt` immediately before use; it expires after 15 minutes. Do not reuse a failed root or delete a ledger.
+3. Keep the computer awake for the bounded trial. Do not change power settings automatically. Review/commit activation of **only** the new session entry; both historical entry gates remain false. Launch `node scripts/dashboard-session-once.mjs <absolute-private-profile.json>` once and open its printed dashboard URL manually. No server starts until the operator clicks Start.
+4. Click Start once. When the owned server is ready, the user may manually open Minecraft Java **26.1**, use Multiplayer → Direct Connection, and paste the displayed `127.0.0.1:<serverPort>` using the approved observer username. This address works only on this computer. Do not automate client launch/join, grant operator rights or interact with the bot's terrain/path. No externally reachable address is claimed.
+5. Click Connect Bot once. Inspect readiness status/history; never substitute oxygen, support or stationarity. If ready, click Collect one once. If blocked, stop/allow the existing timeout; no retry or additional session is authorized.
+6. Require genuine target/guarded action evidence, independently retained inventory increase, confirmed bot end, normal save/exit/stdio and released server port. Check the permanent closed ledger. Parent-observed dashboard process exit remains separate from in-process evidence. Preserve failures, restore the source gate to false, and publish the actual outcome. Any uncertain process cleanup requires investigation, not blind PID termination.
+
+UI source/DOM tests do not establish rendered browser or screen-share quality. The graphical client and advisor demonstration remain manual acceptance steps.

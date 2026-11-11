@@ -119,8 +119,10 @@ export class SessionManager implements TaskService {
         },
       );
       void this.#inner.done.then(() => {
-        this.record(this.#inner!.result().reason);
-        void this.close();
+        if (!this.#closing) {
+          this.record(this.#inner!.result().reason);
+          void this.close();
+        }
       });
     } catch {
       this.record("bot_connection_failed");

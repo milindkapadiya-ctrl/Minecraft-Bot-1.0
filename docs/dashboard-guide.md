@@ -1,5 +1,7 @@
 # Minecraft Bot Control Center
 
+**Dashboard-04:** the connection panel now includes Start Minecraft Session, Connect Bot and Stop Session. They are deliberately disabled in normal simulation launches. A trusted one-attempt real session manager is prepared and offline-tested; [its workflow and separately authorized live acceptance plan](dashboard-session-manager.md) explain how activation would work. No graphical Minecraft client is opened automatically.
+
 The dashboard currently controls a **simulation**. Minecraft and OBS are not needed. The real-session bridge has offline tests, but no real-game connection is enabled.
 
 ## Double-click to start

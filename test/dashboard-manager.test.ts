@@ -388,6 +388,12 @@ for (const fault of ["early_air", "health_wait"])
       }
       await until(() => f.manager.snapshot().state === "ready");
       assert.equal(f.manager.snapshot().history.length, 0);
+      f.manager.sessionControl("stop");
+      await f.manager.close();
+      assert.equal(
+        f.manager.snapshot().lifecycle?.reason,
+        "operator_stop_requested",
+      );
     } finally {
       await f.dispose();
     }
