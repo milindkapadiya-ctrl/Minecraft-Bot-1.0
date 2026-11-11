@@ -30,6 +30,7 @@ export class LiveDashboardSession implements TaskService {
   });
   #readyAt: number | undefined;
   #viewReady = false;
+  #healthPending = false;
   #timer: NodeJS.Timeout | undefined;
   #revision = 0;
   #reason = "connecting";
@@ -106,11 +107,14 @@ export class LiveDashboardSession implements TaskService {
       factory,
       (bot) => {
         this.#reason = "connected_not_ready";
+        this.#healthPending = !Number.isFinite(bot.health);
         // Pinned Mineflayer health plugin emits initial spawn before assigning
         // bot.health in the next synchronous update_health listener. Do not
         // construct an observation context with an inactive health predicate.
         const initialize = () => {
           if (this.#inner || this.#closing) return;
+          if (!Number.isFinite(bot.health)) return;
+          this.#healthPending = false;
           try {
             this.#inner = new RealTaskService(
               this.#session,
@@ -125,7 +129,7 @@ export class LiveDashboardSession implements TaskService {
           }
         };
         if (Number.isFinite(bot.health)) initialize();
-        else bot.once("health", initialize);
+        else bot.on("health", initialize);
         return () => bot.off("health", initialize);
       },
     );
@@ -135,7 +139,11 @@ export class LiveDashboardSession implements TaskService {
         const status = this.#inner?.snapshot();
         const reason =
           status?.readiness?.reason ??
-          (status?.readiness?.eligible ? null : "awaiting_session");
+          (status?.readiness?.eligible
+            ? null
+            : this.#healthPending
+              ? "awaiting_initial_health"
+              : "awaiting_session");
         if (
           !this.#readinessHistory.length ||
           this.#readinessHistory.at(-1)?.reason !== reason
@@ -218,7 +226,12 @@ export class LiveDashboardSession implements TaskService {
     const s = this.#inner?.snapshot();
     const binding = readSessionBinding(this.#session);
     return structuredClone({
-      ...(s?.readiness ? { readiness: s.readiness } : {}),
+      readiness: s?.readiness ?? {
+        eligible: false,
+        reason: this.#healthPending
+          ? "awaiting_initial_health"
+          : "awaiting_session",
+      },
       mode: "REAL_MINECRAFT",
       connection: {
         ...this.#connection,

@@ -1,6 +1,22 @@
 import type { SequenceRecord } from "../autonomy/collection-sequence.js";
 import type { PilotRecord } from "../autonomy/pilot-evidence.js";
 export interface TaskStatus {
+  lifecycle?: {
+    state: string;
+    reason: string;
+    canStart: boolean;
+    canConnect: boolean;
+    canStop: boolean;
+    consumed: boolean;
+    server:
+      | "not_started"
+      | "starting"
+      | "ready"
+      | "stopping"
+      | "stopped"
+      | "uncertain";
+    history: { at: string; reason: string | null }[];
+  };
   connection?: {
     connected: boolean;
     host: string;
@@ -36,6 +52,7 @@ export interface TaskStatus {
 }
 /** Trusted compiled service, never constructed from browser input. */
 export interface TaskService {
+  sessionControl?(command: "start" | "connect" | "stop"): void;
   snapshot(): TaskStatus;
   start(id: string, kind: TaskKind, selectionId?: string): TaskRecord;
   cancel(id: string): void;
