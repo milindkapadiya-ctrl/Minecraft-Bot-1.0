@@ -36,6 +36,19 @@
         <small>01 · CONNECTION</small>
         <h2 id="connection-state">Loading connection…</h2>
         <p id="server-info">Waiting for trusted server information.</p>
+        <div
+          class="session-actions"
+          aria-label="Real Minecraft session controls"
+        >
+          <button id="start-session" disabled>Start Minecraft Session</button>
+          <button id="connect-bot" disabled>Connect Bot</button>
+          <button id="stop-session" class="danger" disabled>
+            Stop Session
+          </button>
+        </div>
+        <p id="session-lifecycle" role="status">
+          Live activation is disabled. Simulation controls remain available.
+        </p>
         <button id="copy-server" disabled>Copy Server Address</button>
         <p id="copy-result" role="status"></p>
         <p id="address-note" class="hint"></p>

@@ -31,7 +31,8 @@ export async function startDashboard(
       ),
     });
   }
-  const simulation = options.service ?? options.simulation ?? new Simulation();
+  const simulation: TaskService =
+    options.service ?? options.simulation ?? new Simulation();
   const server = createServer(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -66,7 +67,14 @@ export async function startDashboard(
         return send(200, { token, ...simulation.snapshot() });
       if (req.method === "GET" && req.url === "/api/status")
         return send(200, simulation.snapshot());
-      if (!["/api/tasks", "/api/cancel", "/api/reset"].includes(req.url ?? ""))
+      if (
+        ![
+          "/api/tasks",
+          "/api/cancel",
+          "/api/reset",
+          "/api/session-control",
+        ].includes(req.url ?? "")
+      )
         return send(404, { error: "route_not_found" });
       if (req.method !== "POST")
         return send(405, { error: "method_not_allowed" });
@@ -100,6 +108,18 @@ export async function startDashboard(
       if (!data || typeof data !== "object" || Array.isArray(data))
         return send(400, { error: "invalid_payload" });
       const keys = Object.keys(data).sort().join(",");
+      if (req.url === "/api/session-control") {
+        if (
+          keys !== "command" ||
+          typeof data.command !== "string" ||
+          !["start", "connect", "stop"].includes(String(data.command))
+        )
+          return send(400, { error: "invalid_payload" });
+        if (!simulation.sessionControl)
+          return send(409, { error: "live_activation_disabled" });
+        simulation.sessionControl(data.command as "start" | "connect" | "stop");
+        return send(202, simulation.snapshot());
+      }
       if (req.url === "/api/tasks") {
         if (
           keys !==

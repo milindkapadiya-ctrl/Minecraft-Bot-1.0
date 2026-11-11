@@ -95,6 +95,9 @@ test("frontend maps controls, blocks duplicate clicks, rejects old status and ne
   );
   for (let i = 0; i < 10; i++) await Promise.resolve();
   assert.equal(calls.filter((c) => c.options?.body).length, 0);
+  for (const id of ["start-session", "connect-bot", "stop-session"])
+    assert.equal(byId(id).disabled, true);
+  assert.match(byId("session-lifecycle").textContent, /source-disabled/);
   buttons[2]!.listeners.click!();
   buttons[2]!.listeners.click!();
   assert.equal(calls.filter((c) => c.options?.body).length, 1);
@@ -232,6 +235,39 @@ test("frontend maps controls, blocks duplicate clicks, rejects old status and ne
   for (let i = 0; i < 15; i++) await Promise.resolve();
   runInNewContext("render({...state,revision:26,selections:[]});", context);
   assert.equal(byId("dig-selected").disabled, true);
+  for (const [index, id, command, stage] of [
+    [0, "start-session", "start", "awaiting_start"],
+    [1, "connect-bot", "connect", "server_ready"],
+    [2, "stop-session", "stop", "ready"],
+  ] as const) {
+    runInNewContext(
+      `render({...state,revision:${30 + index},mode:"REAL_MINECRAFT_PREPARED",state:"${stage}",capabilities:["collect_one"],lifecycle:{canStart:${index === 0},canConnect:${index === 1},canStop:${index > 0},consumed:${index > 0},server:"${index === 0 ? "not_started" : "ready"}",reason:"trusted_configuration",history:[]}});`,
+      context,
+    );
+    assert.equal(byId(id).disabled, false);
+    const before = calls.filter((c) => c.options?.body).length;
+    byId(id).listeners.click!();
+    byId(id).listeners.click!();
+    assert.equal(calls.filter((c) => c.options?.body).length, before + 1);
+    assert.equal(calls.at(-1)?.path, "/api/session-control");
+    assert.deepEqual(JSON.parse(calls.at(-1)!.options!.body), { command });
+    resolvePost!({ ok: true, json: async () => ({}) });
+    for (let i = 0; i < 15; i++) await Promise.resolve();
+  }
+  runInNewContext(
+    'render({...state,revision:40,state:"server_starting",lifecycle:{...state.lifecycle,server:"starting",canStart:false,canConnect:false,canStop:true}});',
+    context,
+  );
+  assert.match(
+    byId("connection-state").textContent,
+    /Starting Minecraft server/,
+  );
+  assert.equal(byId("connect-bot").disabled, true);
+  runInNewContext(
+    'render({...state,revision:41,state:"connected_not_ready",readiness:{eligible:false,reason:"own_air_not_ready"}});',
+    context,
+  );
+  assert.match(byId("session-lifecycle").textContent, /own air not ready/);
 });
 
 test("Minecraft styling is local, responsive, keyboard accessible and does not import game assets", () => {

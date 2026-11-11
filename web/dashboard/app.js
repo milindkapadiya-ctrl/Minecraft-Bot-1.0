@@ -59,6 +59,15 @@ const outcomes = {
 function render(snapshot) {
   if (state && snapshot.revision < state.revision) return;
   state = snapshot;
+  const lifecycle = snapshot.lifecycle;
+  $("start-session").disabled =
+    pending || connectionLost || !lifecycle?.canStart;
+  $("connect-bot").disabled =
+    pending || connectionLost || !lifecycle?.canConnect;
+  $("stop-session").disabled = pending || connectionLost || !lifecycle?.canStop;
+  $("session-lifecycle").textContent = lifecycle
+    ? `Server: ${readable(lifecycle.server)} · ${readable(lifecycle.reason)}. ${lifecycle.consumed ? "Attempt consumed; no reconnect or retry." : "Start consumes this one approved attempt."} ${snapshot.readiness?.reason ? `Readiness: ${readable(snapshot.readiness.reason)}.` : ""}`
+    : "Real Minecraft activation is source-disabled. Start, Connect and Stop are unavailable; simulation controls below remain available.";
   const connection = snapshot.connection;
   $("connection-state").textContent =
     snapshot.mode === "SIMULATION"
@@ -70,6 +79,22 @@ function render(snapshot) {
           : snapshot.history.length
             ? "Disconnected after task"
             : "Disconnected";
+  if (lifecycle) {
+    const lifecycleLabels = {
+      awaiting_start: "Prepared · server not started",
+      server_starting: "Starting Minecraft server",
+      server_ready: "Server ready · bot not connected",
+      connecting: "Connecting bot",
+      connected_not_ready: "Bot connected · not ready",
+      ready: "Bot ready for one collection",
+      running: "Bot working",
+      stopping: "Stopping session · awaiting cleanup",
+      disconnected: "Session ended · disconnected",
+      cleanup_uncertain: "Error · cleanup uncertain",
+    };
+    $("connection-state").textContent =
+      lifecycleLabels[snapshot.state] ?? readable(snapshot.state);
+  }
   $("server-info").textContent = connection
     ? `${connection.host}:${connection.port} · Bot: ${connection.username} · Minecraft ${connection.version} · ${connection.survival ? "Survival verified" : "Survival not currently verified"}`
     : "No real server configuration available.";
@@ -128,7 +153,11 @@ function render(snapshot) {
     snapshot.state !== "ready" ||
     !snapshot.capabilities.includes("dig_selected");
   $("readiness").textContent = snapshot.readiness
-    ? JSON.stringify(snapshot.readiness, null, 2)
+    ? JSON.stringify(
+        { ...snapshot.readiness, ...(lifecycle ? { lifecycle } : {}) },
+        null,
+        2,
+      )
     : "Simulation status; no live readiness claim.";
   $("mode").textContent =
     snapshot.mode === "SIMULATION"
@@ -150,6 +179,14 @@ function render(snapshot) {
     snapshot.mode === "REAL_MINECRAFT"
       ? "Wait for genuine readiness, then click Collect one dirt block once. Cancellation is available during work. No reset, extra episode or reconnect is permitted; the session closes after the result."
       : "The trusted single-collection bridge requires separately authorized activation. Normal launches use simulation; no recording software is required for technical collection.";
+  if (lifecycle && snapshot.mode !== "REAL_MINECRAFT") {
+    $("mode").textContent = "REAL SESSION MANAGER · BOT NOT CONNECTED";
+    $("mode-description").textContent =
+      "A trusted one-attempt configuration is loaded. Start the approved local server, connect the bot, then wait for genuine readiness. No collection starts automatically.";
+    $("real-mode-title").textContent = "ONE APPROVED SERVER AND BOT SESSION";
+    $("real-mode-note").textContent =
+      "Start consumes the configured attempt. Connect is available only after server startup. Stop waits for bot and owned-server cleanup. Join the displayed address manually in Minecraft 26.1 using the approved observer identity.";
+  }
   const liveStates = {
     ready: "Ready for one approved task",
     connecting: "Connecting",
@@ -324,6 +361,15 @@ $("copy-server").addEventListener("click", async () => {
       `Copy unavailable. Select this address manually: ${address}`;
   }
 });
+for (const [id, action] of [
+  ["start-session", "start"],
+  ["connect-bot", "connect"],
+  ["stop-session", "stop"],
+])
+  $(id).addEventListener("click", () => {
+    if (!$(id).disabled)
+      return command("/api/session-control", { command: action });
+  });
 $("cancel").addEventListener(
   "click",
   () => state?.active && command("/api/cancel", { id: state.active.id }),

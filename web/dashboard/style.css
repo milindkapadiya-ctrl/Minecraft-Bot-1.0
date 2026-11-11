@@ -248,7 +248,24 @@ footer {
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+.session-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+#connection-state {
+  font-size: clamp(23px, 3vw, 34px);
+}
+#server-info {
+  font:
+    bold 18px/1.5 "Courier New",
+    monospace;
+}
 @media (max-width: 760px) {
+  .session-actions {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
   .columns {
     grid-template-columns: 1fr;
   }
