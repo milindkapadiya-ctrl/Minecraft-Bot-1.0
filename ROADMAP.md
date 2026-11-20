@@ -1,3 +1,5 @@
+**SKILLS-02:** Basic inventory/equipment skills implemented offline; main-storage pickaxe transferred to an empty hotbar slot and independently verified held. Full scope, uncertain-outcome handling and validation: [handoff](docs/workstreams/mcbot-skills-02.md). Next proposed basic skill is guarded placement; no new composites or live activation.
+
 **SKILLS-01:** Foundational typed skill library wraps existing body and collection without changing safety. Offline evidence and remaining checks: [handoff](docs/workstreams/mcbot-skills-01.md). Next proposed gameplay capability: inventory selection/equipping, then placement and wood/crafting toward a wooden pickaxe. No live validation in this milestone.
 
 **MCBOT-DASHBOARD-04:** prepared trusted local server Start, explicit bot Connect, one guarded collection and evidence-based Stop. Offline only; real activation remains false and all manual real tasks remain disabled. Next: review the narrowly scoped authorization and manual graphical-client acceptance plan. [Evidence](docs/workstreams/mcbot-dashboard-04.md), [session workflow and plan](docs/dashboard-session-manager.md).
