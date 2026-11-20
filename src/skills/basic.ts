@@ -7,6 +7,11 @@ import {
 import type { BasicName, SkillResult } from "./contracts.js";
 
 export const basicActions = Object.freeze({
+  "inventory.inspectEquipment": "inspect_equipment",
+  "inventory.selectHotbar": "select_hotbar",
+  "inventory.equipItem": "equip_item",
+  "inventory.moveStack": "move_stack",
+  "inventory.dropItem": "drop_item",
   "camera.look": "look",
   "movement.moveTimed": "move",
   "perception.inspectBlocks": "inspect",

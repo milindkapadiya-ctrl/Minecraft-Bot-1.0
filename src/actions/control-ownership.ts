@@ -29,6 +29,11 @@ const methods = [
   "deactivateItem",
   "equip",
   "unequip",
+  "clickWindow",
+  "moveSlotItem",
+  "toss",
+  "tossStack",
+  "transfer",
 ] as const;
 
 export function assertPrototypeControls(bot: Bot) {

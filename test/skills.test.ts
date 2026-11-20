@@ -24,12 +24,12 @@ function setup() {
   return { raw, runner, state, library };
 }
 
-test("registry lists exactly twelve copied descriptions without live activation", () => {
+test("registry lists exactly seventeen copied descriptions without live activation", () => {
   const { library, runner } = setup();
   try {
     const list = library.list();
-    assert.equal(list.length, 12);
-    assert.equal(new Set(list.map((s) => s.name)).size, 12);
+    assert.equal(list.length, 17);
+    assert.equal(new Set(list.map((s) => s.name)).size, 17);
     assert.ok(list.every((s) => s.activation === "no-entrypoint-enabled"));
     (list[0]!.preconditions as string[]).push("mutation");
     assert.ok(!library.list()[0]!.preconditions.includes("mutation"));
@@ -44,7 +44,16 @@ test("registry lists exactly twelve copied descriptions without live activation"
 });
 
 test("all nine action wrappers preserve canonical schemas and result semantics", async () => {
-  for (const name of Object.keys(basicActions) as BasicName[]) {
+  for (const name of (Object.keys(basicActions) as BasicName[]).filter(
+    (name) =>
+      ![
+        "inventory.inspectEquipment",
+        "inventory.selectHotbar",
+        "inventory.equipItem",
+        "inventory.moveStack",
+        "inventory.dropItem",
+      ].includes(name),
+  )) {
     const left = setup(),
       right = setup();
     // Mismatched target state exercises real fresh-target refusal, not an injected result.

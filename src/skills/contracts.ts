@@ -1,3 +1,4 @@
+import type { equipmentSnapshot } from "../actions/equipment.js";
 import type { Action, ActionResult } from "../actions/runner.js";
 import type { Target } from "../actions/local.js";
 import type { EpisodeRecord } from "../autonomy/collection-episode.js";
@@ -12,6 +13,15 @@ type ActionInput<K extends Action["type"]> = Omit<
 >;
 type TargetInput = { target: Target; timeoutMs: number };
 export interface SkillInputs {
+  "inventory.inspectEquipment": { timeoutMs: number };
+  "inventory.selectHotbar": { slot: number; timeoutMs: number };
+  "inventory.equipItem": { itemKey: string; timeoutMs: number };
+  "inventory.moveStack": {
+    itemKey: string;
+    destination: number;
+    timeoutMs: number;
+  };
+  "inventory.dropItem": { itemKey: string; count: number; timeoutMs: number };
   "camera.look": ActionInput<"look">;
   "movement.moveTimed": ActionInput<"move">;
   "perception.inspectBlocks": { timeoutMs: number };
@@ -27,7 +37,30 @@ export interface SkillInputs {
 }
 export type SkillName = keyof SkillInputs;
 export type BasicName = Exclude<SkillName, `collection.${string}`>;
-export type SkillOutputs = { [K in BasicName]: ActionResult } & {
+export type EquipmentSkillName =
+  | "inventory.inspectEquipment"
+  | "inventory.selectHotbar"
+  | "inventory.equipItem"
+  | "inventory.moveStack"
+  | "inventory.dropItem";
+export type EquipmentSkillResult = Omit<ActionResult, "details"> & {
+  details?: {
+    equipment?: ReturnType<typeof equipmentSnapshot>;
+    accepted?: boolean;
+    attempted?: boolean;
+    transactionAttempted?: boolean;
+    serverObserved?: boolean;
+    verified?: boolean;
+    verification?: string;
+    selectedSlotChanged?: boolean;
+    reason?: string;
+    cleanup?: string;
+    [key: string]: unknown;
+  };
+};
+export type SkillOutputs = {
+  [K in Exclude<BasicName, EquipmentSkillName>]: ActionResult;
+} & { [K in EquipmentSkillName]: EquipmentSkillResult } & {
   "collection.episode": EpisodeRecord;
   "collection.sequence": SequenceRecord;
   "collection.observedDirt": ObservedCollectionResult;

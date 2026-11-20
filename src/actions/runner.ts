@@ -1,3 +1,4 @@
+import { executeEquipment, type EquipmentAction } from "./equipment.js";
 import {
   installControlOwnership,
   protectControls,
@@ -31,6 +32,7 @@ import {
 } from "./local.js";
 
 export type Action =
+  | EquipmentAction
   | { type: "inspect" | "inventory"; timeoutMs: number }
   | {
       type: "approach" | "dig" | "step_up" | "step_down" | "walk_to";
@@ -104,6 +106,46 @@ export function validateAction(value: unknown): Action | null {
     a.timeoutMs > 5000
   )
     return null;
+  const equipmentFields: Record<string, string[]> = {
+    inspect_equipment: [],
+    select_hotbar: ["slot"],
+    equip_item: ["itemKey"],
+    move_stack: ["itemKey", "destination"],
+    drop_item: ["itemKey", "count"],
+  };
+  if (typeof a.type === "string" && Object.hasOwn(equipmentFields, a.type)) {
+    const keys = ["type", "timeoutMs", ...equipmentFields[a.type]!];
+    if (
+      Object.keys(a).length !== keys.length ||
+      Object.keys(a).some((k) => !keys.includes(k))
+    )
+      return null;
+    if (
+      "itemKey" in a &&
+      (typeof a.itemKey !== "string" || !/^[a-f0-9-]{36}$/.test(a.itemKey))
+    )
+      return null;
+    if (
+      "slot" in a &&
+      (!Number.isInteger(a.slot) || Number(a.slot) < 0 || Number(a.slot) > 8)
+    )
+      return null;
+    if (
+      "destination" in a &&
+      (!Number.isInteger(a.destination) ||
+        Number(a.destination) < 9 ||
+        Number(a.destination) > 44)
+    )
+      return null;
+    if (
+      "count" in a &&
+      (!Number.isInteger(a.count) ||
+        Number(a.count) < 1 ||
+        Number(a.count) > 64)
+    )
+      return null;
+    return { ...a } as EquipmentAction;
+  }
   if (
     a.type === "look" &&
     Object.keys(a).every((k) =>
@@ -638,6 +680,14 @@ export class ActionRunner {
             completionCode === "ok" && details.serverConfirmedAir === true,
             digDropItem,
           );
+        if (
+          details.transactionAttempted === true &&
+          details.serverObserved !== true
+        ) {
+          this.closed = true;
+          details.cleanup = "inventory_state_unconfirmed";
+          if (completionCode === "ok") completionCode = "execution_error";
+        }
         ownership.release();
         if (this.closed) closeControls(this.bot);
         this.active = undefined;
@@ -785,7 +835,43 @@ export class ActionRunner {
       this.log("action_started", { id, request: action, before });
       try {
         ownership.within(() => this.bot.clearControlStates());
-        if (action.type === "exclusive") {
+        if (
+          [
+            "inspect_equipment",
+            "select_hotbar",
+            "equip_item",
+            "move_stack",
+            "drop_item",
+          ].includes(action.type)
+        ) {
+          workPending = true;
+          void ownership
+            .within(() =>
+              executeEquipment(
+                this.bot,
+                action as EquipmentAction,
+                cancellation.signal,
+                details,
+                started + action.timeoutMs,
+              ),
+            )
+            .then((verified) => {
+              workPending = false;
+              if (ended) finalize();
+              else finish(verified ? "ok" : "not_ready");
+            })
+            .catch(() => {
+              details.reason ??= "equipment_execution_failed";
+              workPending = false;
+              if (ended) finalize();
+              else
+                finish(
+                  performance.now() - started >= action.timeoutMs
+                    ? "timeout"
+                    : "execution_error",
+                );
+            });
+        } else if (action.type === "exclusive") {
           const checkpoint = () => {
             if (ended || cancellation.signal.aborted)
               throw new Error("action_expired");

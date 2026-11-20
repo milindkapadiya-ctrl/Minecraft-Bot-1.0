@@ -46,6 +46,35 @@ const descriptions: SkillDescription[] = Object.entries(basicActions).map(
     activation: "no-entrypoint-enabled",
   }),
 );
+const equipmentInputs: Record<string, Record<string, string>> = {
+  "inventory.inspectEquipment": {},
+  "inventory.selectHotbar": { slot: "integer 0..8" },
+  "inventory.equipItem": {
+    itemKey: "single-use key from inspectEquipment; main hand only",
+  },
+  "inventory.moveStack": {
+    itemKey: "single-use item key",
+    destination: "empty player slot 9..44; one endpoint must be hotbar",
+  },
+  "inventory.dropItem": {
+    itemKey: "single-use item key",
+    count: "1 or complete stack, integer 1..64; never retried",
+  },
+};
+for (const description of descriptions) {
+  if (Object.hasOwn(equipmentInputs, description.name)) {
+    description.inputs = {
+      ...equipmentInputs[description.name],
+      timeoutMs: "integer 100..5000",
+    };
+    description.preconditions = [
+      "Minecraft 26.1 trusted active session",
+      "Player inventory only; no open container or cursor stack",
+      "Item keys expire after 5 seconds and fail on changed identity",
+      "Mutations use canonical owner; transfers/drops require server resync",
+    ];
+  }
+}
 for (const name of [
   "collection.episode",
   "collection.sequence",
